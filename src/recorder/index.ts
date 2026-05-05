@@ -40,7 +40,7 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   await rm(framesDir, { recursive: true, force: true });
 
-  const logger = new Logger(config.viewport);
+  const logger = new Logger(config.viewport, config.captureScale);
   const browser = await openBrowser();
   const actions = new Actions(browser.page, logger);
 

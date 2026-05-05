@@ -47,19 +47,22 @@ function scaleHotpoint(
 export type RenderCursorOptions = {
   path: CursorPath;
   sprite: Sprite;
-  viewport: { width: number; height: number };
+  // Frame dimensions of the output (CSS viewport × captureScale).
+  frame: { width: number; height: number };
+  // Multiplier applied to sample coordinates (CSS px → frame px).
+  captureScale: number;
   out: Writable; // ffmpeg stdin (rawvideo rgba)
 };
 
 // Stream frames as raw RGBA into `out`. We keep a single full-frame buffer,
 // clear the previous sprite's bbox, blit the new one, and write the whole
-// frame. Per-frame cost is O(sprite area), not O(viewport area).
+// frame. Per-frame cost is O(sprite area), not O(frame area).
 export async function streamCursorFrames(
   opts: RenderCursorOptions,
 ): Promise<number> {
-  const { path, sprite, viewport, out } = opts;
-  const stride = viewport.width * 4;
-  const frame = Buffer.alloc(viewport.width * viewport.height * 4); // transparent
+  const { path, sprite, frame: dim, captureScale, out } = opts;
+  const stride = dim.width * 4;
+  const frame = Buffer.alloc(dim.width * dim.height * 4); // transparent
 
   let lastBox: { x: number; y: number; w: number; h: number } | null = null;
   let frameCount = 0;
@@ -67,9 +70,11 @@ export async function streamCursorFrames(
   for (const sample of path.samples) {
     if (lastBox) clearRegion(frame, stride, lastBox);
 
-    const left = Math.round(sample.x - sprite.hotpoint.x);
-    const top = Math.round(sample.y - sprite.hotpoint.y);
-    const box = blitSprite(frame, stride, viewport, sprite, left, top);
+    const px = sample.x * captureScale;
+    const py = sample.y * captureScale;
+    const left = Math.round(px - sprite.hotpoint.x);
+    const top = Math.round(py - sprite.hotpoint.y);
+    const box = blitSprite(frame, stride, dim, sprite, left, top);
     lastBox = box;
 
     if (!out.write(frame)) {
@@ -95,16 +100,16 @@ function clearRegion(
 function blitSprite(
   frame: Buffer,
   stride: number,
-  viewport: { width: number; height: number },
+  dim: { width: number; height: number },
   sprite: Sprite,
   left: number,
   top: number,
 ): { x: number; y: number; w: number; h: number } {
-  // Clip sprite rect to viewport.
+  // Clip sprite rect to frame.
   const x0 = Math.max(0, left);
   const y0 = Math.max(0, top);
-  const x1 = Math.min(viewport.width, left + sprite.width);
-  const y1 = Math.min(viewport.height, top + sprite.height);
+  const x1 = Math.min(dim.width, left + sprite.width);
+  const y1 = Math.min(dim.height, top + sprite.height);
   const w = Math.max(0, x1 - x0);
   const h = Math.max(0, y1 - y0);
   if (w === 0 || h === 0) return { x: 0, y: 0, w: 0, h: 0 };

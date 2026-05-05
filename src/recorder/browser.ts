@@ -8,13 +8,22 @@ export type BrowserSession = {
 };
 
 export async function openBrowser(): Promise<BrowserSession> {
+  // --force-device-scale-factor is the magic knob: page lays out at the
+  // CSS viewport size (so UI elements stay HD-sized), but Chromium rasterizes
+  // at viewport × DSR — and CDP screencast emits at the rasterized size.
+  // Without this flag, deviceScaleFactor on the context is a no-op for screencast.
   const browser = await chromium.launch({
     headless: true,
-    args: ["--hide-scrollbars", "--force-color-profile=srgb"],
+    args: [
+      "--hide-scrollbars",
+      "--force-color-profile=srgb",
+      `--force-device-scale-factor=${config.captureScale}`,
+      "--high-dpi-support=1",
+    ],
   });
   const context = await browser.newContext({
     viewport: config.viewport,
-    deviceScaleFactor: 1,
+    deviceScaleFactor: config.captureScale,
     colorScheme: "dark",
   });
   const page = await context.newPage();

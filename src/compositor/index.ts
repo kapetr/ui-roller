@@ -23,28 +23,39 @@ async function main() {
 
   const log: EventLog = JSON.parse(await readFile(eventsPath, "utf8"));
   const durationMs = await probeDurationMs(rawPath);
+  const captureScale = log.captureScale ?? 1;
+  const frame = {
+    width: log.viewport.width * captureScale,
+    height: log.viewport.height * captureScale,
+  };
 
   console.log(`▶ assembling scene: ${sceneName}`);
   console.log(`  raw duration: ${(durationMs / 1000).toFixed(2)}s`);
   console.log(`  events: ${log.events.length}`);
+  console.log(`  layout: ${log.viewport.width}×${log.viewport.height} CSS, capture: ${frame.width}×${frame.height} (×${captureScale})`);
 
   const path = buildCursorPath(log, {
     fps: config.compositor.fps,
     durationMs: durationMs + 100, // small tail so overlay never short-stops
     travelMs: config.compositor.cursor.travelMs,
     preroll: config.compositor.cursor.preroll,
+    curveAmount: config.compositor.cursor.curveAmount,
+    curveMaxOffset: config.compositor.cursor.curveMaxOffsetCss,
+    curveMinDistance: config.compositor.cursor.curveMinDistanceCss,
   });
 
-  const sprite = await loadCursorSprite({
-    width: config.compositor.cursor.spritePxAtViewportWidth(log.viewport.width),
-  });
+  // Sprite is sized in frame pixels: CSS-fraction × CSS viewport × capture scale.
+  const spriteFramePx = Math.round(
+    log.viewport.width * config.compositor.cursor.spriteCssFraction * captureScale,
+  );
+  const sprite = await loadCursorSprite({ width: spriteFramePx });
   console.log(`  cursor sprite: ${sprite.width}×${sprite.height}px, hotpoint=(${sprite.hotpoint.x},${sprite.hotpoint.y})`);
 
   console.log(`▶ rendering ${path.samples.length} cursor frames @ ${path.fps}fps…`);
   const renderStart = Date.now();
   const ff = spawnCursorEncoder({
-    width: log.viewport.width,
-    height: log.viewport.height,
+    width: frame.width,
+    height: frame.height,
     fps: path.fps,
     outputPath: cursorPath,
   });
@@ -55,7 +66,8 @@ async function main() {
   await streamCursorFrames({
     path,
     sprite,
-    viewport: log.viewport,
+    frame,
+    captureScale,
     out: ff.stdin,
   });
   ff.stdin.end();

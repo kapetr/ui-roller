@@ -7,7 +7,10 @@ export class Logger {
   private readonly startedAtMs = Date.now();
   private readonly startedAtIso = new Date().toISOString();
 
-  constructor(private readonly viewport: { width: number; height: number }) {}
+  constructor(
+    private readonly viewport: { width: number; height: number },
+    private readonly captureScale: number,
+  ) {}
 
   now(): number {
     return Date.now() - this.startedAtMs;
@@ -21,6 +24,7 @@ export class Logger {
     const log: EventLog = {
       startedAt: this.startedAtIso,
       viewport: this.viewport,
+      captureScale: this.captureScale,
       events: this.events,
     };
     await mkdir(dirname(path), { recursive: true });

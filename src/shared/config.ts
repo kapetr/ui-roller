@@ -1,11 +1,14 @@
 import type { Codec } from "../recorder/encoder.ts";
 
 export const config = {
-  // Capture resolution = viewport size (CDP screencast emits at viewport).
-  // App lays out at this size — most modern web apps are responsive.
-  // 2560×1440 (2K / QHD) gives 1.33× linear headroom over 1080p output.
-  // Bump to 3840×2160 for 2× headroom; some apps may not lay out cleanly at 4K.
-  viewport: { width: 2560, height: 1440 },
+  // Layout viewport, in CSS pixels. The page lays out at this size — pick
+  // it based on how big you want UI elements to look on the final video.
+  viewport: { width: 1920, height: 1080 },
+  // Capture multiplier. Combined with Chromium's --force-device-scale-factor,
+  // CDP screencast emits frames at viewport × captureScale (verified empirically).
+  // 2 = retina-grade headroom for the compositor's zoom-in effects without
+  // softening pixels. 1 = layout == capture (small file, no zoom headroom).
+  captureScale: 2,
   baseUrl: "http://humr.localhost:4444",
   typing: {
     delayMs: 50,
@@ -29,12 +32,20 @@ export const config = {
     finalCodec: "h264-hq" as "h264-hq" | "prores-hq",
     finalExtension: "mp4" as "mp4" | "mov",
     cursor: {
-      // Sprite size scales with viewport: ~2.2% of width gives a comfortable
-      // on-screen size at 2K (≈56px) and 4K (≈84px).
-      spritePxAtViewportWidth: (vw: number) => Math.round(vw * 0.022),
+      // Sprite size as a fraction of the LAYOUT (CSS) viewport width.
+      // 0.018 ≈ 35 CSS px @ 1920 → 70 frame px @ captureScale=2.
+      spriteCssFraction: 0.018,
       // Time spent travelling between consecutive anchors. The cursor holds
-      // the previous position until (next.t - travelMs), then eases.
-      travelMs: 450,
+      // the previous position until (next.t - travelMs), then eases. Bigger
+      // = the cursor starts moving earlier and glides instead of darting.
+      travelMs: 800,
+      // Curve the path on long moves so it feels human, not laser-guided.
+      // 0 = always linear. 0.06 = subtle perpendicular bow; 0.12 = obvious arc.
+      curveAmount: 0.06,
+      curveMaxOffsetCss: 60,
+      // Below this CSS-pixel threshold, paths stay linear (small moves
+      // shouldn't curve, it looks twitchy).
+      curveMinDistanceCss: 220,
       preroll: "first" as "off-screen" | "first",
     },
   },

@@ -43,7 +43,9 @@ export type Event =
 export type EventLog = {
   startedAt: string;
   // CSS layout viewport — coordinates in events are in this space.
-  // Raw video frames are at the same dimensions.
   viewport: { width: number; height: number };
+  // Raw video frames are at viewport × captureScale (Chromium rasterizes
+  // at this density when --force-device-scale-factor is set).
+  captureScale: number;
   events: Event[];
 };

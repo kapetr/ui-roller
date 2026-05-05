@@ -23,6 +23,11 @@ export type PathOptions = {
   // until the first move/click; "first" snaps it to the first anchor's
   // position so it's already on-frame at t=0.
   preroll?: "off-screen" | "first";
+  // Adds a perpendicular bow to long moves so the path looks human, not
+  // laser-guided. Offset = min(distance × curveAmount, curveMaxOffset).
+  curveAmount?: number;
+  curveMaxOffset?: number;
+  curveMinDistance?: number;
 };
 
 export type CursorPath = {
@@ -82,13 +87,44 @@ export function buildCursorPath(
     } else {
       const u = travel <= 0 ? 1 : (t - travelStart) / travel;
       const k = ease(Math.max(0, Math.min(1, u)));
-      samples.push({
-        t,
-        x: prev.x + (next.x - prev.x) * k,
-        y: prev.y + (next.y - prev.y) * k,
-      });
+      samples.push({ t, ...interpolate(prev, next, k, opts) });
     }
   }
 
   return { fps: opts.fps, samples };
+}
+
+function interpolate(
+  p0: { x: number; y: number },
+  p1: { x: number; y: number },
+  k: number,
+  opts: PathOptions,
+): { x: number; y: number } {
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const dist = Math.hypot(dx, dy);
+  const curveAmount = opts.curveAmount ?? 0;
+  const minDist = opts.curveMinDistance ?? 200;
+
+  if (curveAmount <= 0 || dist < minDist) {
+    return { x: p0.x + dx * k, y: p0.y + dy * k };
+  }
+
+  // Quadratic bezier with a control point offset perpendicular to the
+  // motion. Side alternates by a deterministic seed so adjacent segments
+  // bow opposite ways — looks more like a wandering hand than a fixed bias.
+  const maxOff = opts.curveMaxOffset ?? Infinity;
+  const offset = Math.min(dist * curveAmount, maxOff);
+  const seed = (Math.floor(p0.x) ^ Math.floor(p1.y)) & 1;
+  const sign = seed === 0 ? 1 : -1;
+  // Perpendicular unit vector (rotate 90° counterclockwise in screen coords).
+  const perpX = -dy / dist;
+  const perpY = dx / dist;
+  const cx = (p0.x + p1.x) / 2 + perpX * offset * sign;
+  const cy = (p0.y + p1.y) / 2 + perpY * offset * sign;
+  const omk = 1 - k;
+  return {
+    x: omk * omk * p0.x + 2 * omk * k * cx + k * k * p1.x,
+    y: omk * omk * p0.y + 2 * omk * k * cy + k * k * p1.y,
+  };
 }
