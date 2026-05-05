@@ -4,7 +4,7 @@ import type { Logger } from "../recorder/logger.ts";
 
 export class Actions {
   constructor(
-    private readonly page: Page,
+    public readonly page: Page,
     private readonly logger: Logger,
   ) {}
 
@@ -18,8 +18,13 @@ export class Actions {
   }
 
   async click(target: Locator | string, label?: string): Promise<void> {
+    // Strings get a `:visible` filter so duplicate hidden mobile/aria-labelled
+    // variants don't trigger Playwright's strict-mode violation. Pass a pre-
+    // narrowed Locator (e.g. page.getByRole(...)) when you need finer control.
     const locator =
-      typeof target === "string" ? this.page.locator(target) : target;
+      typeof target === "string"
+        ? this.page.locator(`${target} >> visible=true`).first()
+        : target;
     await locator.waitFor({ state: "visible" });
     const bbox = await locator.boundingBox();
     if (!bbox) throw new Error(`No bounding box for ${label ?? "target"}`);

@@ -6,12 +6,14 @@
   "private": true,
   "scripts": {
     "record": "tsx src/recorder/index.ts",
+    "assemble": "tsx src/compositor/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "packageManager": "pnpm@10.33.0",
   "devDependencies": {
     "@types/node": "^25.6.0",
     "playwright": "^1.59.1",
+    "sharp": "^0.34.5",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }
