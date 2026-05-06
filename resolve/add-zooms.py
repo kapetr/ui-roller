@@ -144,24 +144,10 @@ def build_extra_tools(
     pre_ms: int,
     hold_ms: int,
     post_ms: int,
-) -> tuple[str, str]:
-    """Build a chain of Transform tools, one per click. Each Transform has:
-      - Static Center at the click's bbox centre.
-      - Size animated via BezierSpline modifier (1.0 outside the click
-        window, ramps to `zoom` at peak, holds, ramps back to 1.0).
-
-    Returns (tools_text, last_tool_name). last_tool_name is what MediaOut1
-    should consume — the patch caller re-routes the Saver to it.
-
-    Why a chain instead of one animated Center: Resolve's Fusion expects
-    Center animation to come from a PolyPath (path waypoints + a
-    BezierSpline displacement driving traversal). For multiple clicks
-    with distinct bbox centres that's fiddly to encode. A chain of
-    static-Center / animated-Size Transforms is equivalent visually
-    (each Transform is a no-op outside its click window because
-    Size = 1.0 there) and uses the well-understood BezierSpline format
-    Fusion saves natively.
-    """
+    viewport_w: float,
+    viewport_h: float,
+) -> tuple[str, str, list[list[dict]]]:
+    """Wraps _build_extra_tools_impl. See its docstring."""
     return _build_extra_tools_impl(
         click_events,
         fps=fps,
@@ -172,7 +158,77 @@ def build_extra_tools(
         pre_ms=pre_ms,
         hold_ms=hold_ms,
         post_ms=post_ms,
+        viewport_w=viewport_w,
+        viewport_h=viewport_h,
     )
+
+
+def _euclid(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
+def _bbox_center_css(ev: dict) -> tuple[float, float]:
+    """Click event's bbox centre in CSS pixels (the events.json space)."""
+    bbox = ev.get("bbox") or {
+        "x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0,
+    }
+    return (bbox["x"] + bbox["width"] / 2, bbox["y"] + bbox["height"] / 2)
+
+
+def group_clicks(
+    click_events: list[dict],
+    viewport_w: float,
+    threshold_frac: float = 0.30,
+) -> list[list[dict]]:
+    """Group consecutive clicks whose bbox centres are within
+    threshold_frac × viewport_w of each other. CSS pixels (events.json).
+
+    The intent: a tight cluster of clicks (form-fill, set of nearby
+    buttons) becomes ONE zoom region. Distant clicks (sidebar nav,
+    different page) become separate regions, with the camera zoomed
+    out between them. Don't overdo it — ~30% of viewport width is a
+    reasonable "same neighbourhood" threshold.
+    """
+    if not click_events:
+        return []
+    threshold_px = threshold_frac * viewport_w
+    groups: list[list[dict]] = [[click_events[0]]]
+    for ev in click_events[1:]:
+        prev_centre = _bbox_center_css(groups[-1][-1])
+        this_centre = _bbox_center_css(ev)
+        if _euclid(prev_centre, this_centre) > threshold_px:
+            groups.append([ev])
+        else:
+            groups[-1].append(ev)
+    return groups
+
+
+def _kf_with_handles(
+    t: int,
+    v: float,
+    t_prev: int | None = None,
+    v_prev: float | None = None,
+    t_next: int | None = None,
+    v_next: float | None = None,
+) -> str:
+    """Render a BezierSpline keyframe in the format Resolve writes
+    natively when you keyframe a parameter manually:
+        [t] = { value, LH = { t', v' }, RH = { t'', v'' }, Flags = { Linear = true } }
+    LH/RH at 1/3 distance to neighbours (Fusion's default linear handle
+    layout). Linear flag set so interpolation is straight-line, but
+    handles must be present syntactically.
+    """
+    parts = [f"{v:.4f}"]
+    if t_prev is not None and v_prev is not None:
+        lh_t = t - (t - t_prev) / 3
+        lh_v = v + (v_prev - v) / 3
+        parts.append(f"LH = {{ {lh_t:.6f}, {lh_v:.6f} }}")
+    if t_next is not None and v_next is not None:
+        rh_t = t + (t_next - t) / 3
+        rh_v = v + (v_next - v) / 3
+        parts.append(f"RH = {{ {rh_t:.6f}, {rh_v:.6f} }}")
+    parts.append("Flags = { Linear = true }")
+    return f"\t\t\t\t[{t}] = {{ {', '.join(parts)} }}"
 
 
 def _build_extra_tools_impl(
@@ -186,54 +242,75 @@ def _build_extra_tools_impl(
     pre_ms: int,
     hold_ms: int,
     post_ms: int,
-) -> tuple[str, str]:
-    """Build a Fusion .comp file text with MediaIn → Transform (animated
-    Size + Center via BezierSpline + XYPath) → MediaOut.
+    viewport_w: float,
+    viewport_h: float,
+) -> tuple[str, str, list[list[dict]]]:
+    """One Transform per zoom region (group of consecutive nearby clicks).
+    Each Transform has:
+      - Static Centre at its group's mean bbox centre.
+      - Size animated by a BezierSpline modifier with handle-format
+        keyframes (Resolve's native format; the no-handle variant we
+        tried earlier gave black output even with Size = 1.0 reading
+        correctly in the inspector).
+
+    Outside its group's [f_pre, f_post] window, each Size spline holds
+    1.0 (Fusion clamps to first/last keyframe value), so chaining N
+    Transforms is identity at any frame outside ALL groups.
+
+    Returns (tools_text, last_tool_name, groups). The groups list is
+    informational — main() prints it for visibility.
     """
     pre_frames = ms_to_frames(pre_ms, fps)
     hold_frames = ms_to_frames(hold_ms, fps)
     post_frames = ms_to_frames(post_ms, fps)
 
+    groups = group_clicks(click_events, viewport_w)
+
     blocks: list[str] = []
     prev_source = "MediaIn1"
 
-    for i, ev in enumerate(click_events, start=1):
-        click_frame = ms_to_frames(ev.get("t", 0), fps)
-        f_pre = max(0, click_frame - pre_frames)
-        f_peak_in = click_frame
-        f_peak_out = click_frame + hold_frames
+    for i, group in enumerate(groups, start=1):
+        first_click_t = group[0].get("t", 0)
+        last_click_t = group[-1].get("t", 0)
+        click_frame_first = ms_to_frames(first_click_t, fps)
+        click_frame_last = ms_to_frames(last_click_t, fps)
+
+        f_pre = max(0, click_frame_first - pre_frames)
+        f_peak_in = click_frame_first
+        f_peak_out = click_frame_last + hold_frames
         f_post = f_peak_out + post_frames
 
-        bbox = ev.get("bbox") or {
-            "x": ev.get("x", 0), "y": ev.get("y", 0),
-            "width": 0, "height": 0,
-        }
-        bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
-        bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
-        cx_norm = bbox_cx / frame_w
-        # Fusion's Y is bottom-up; screencast Y is top-down.
-        cy_norm = 1.0 - (bbox_cy / frame_h)
+        # Group centre = mean of bbox centres (CSS) → frame px → Fusion 0..1.
+        sum_x = sum_y = 0.0
+        for ev in group:
+            cx, cy = _bbox_center_css(ev)
+            sum_x += cx
+            sum_y += cy
+        n = len(group)
+        cx_frame = (sum_x / n) * capture_scale
+        cy_frame = (sum_y / n) * capture_scale
+        cx_norm = cx_frame / frame_w
+        cy_norm = 1.0 - (cy_frame / frame_h)
 
         tool_name = f"Transform{i}"
         size_name = f"{tool_name}Size"
         x_pos = 220 + (i - 1) * 60
 
-        # Match the format Resolve writes for animated BezierSpline modifiers:
-        #   [frame] = { value, Flags = { Linear = true } }
-        # No handles, no LockedY — Linear flag is enough for straight-line
-        # interpolation between keyframes, and Fusion derives handles itself.
-        #
-        # Anchor at frame 0 with value 1.0 so the spline doesn't extrapolate
-        # linearly backwards from f_pre (which would produce negative Size →
-        # degenerate transform → black output). Same idea at the very end:
-        # the f_post keyframe at 1.0 holds for everything after the click.
-        kf_lines: list[str] = []
+        # Build keyframe sequence with explicit anchor at frame 0 so the
+        # spline doesn't extrapolate backwards into negative Size.
+        kf_seq: list[tuple[int, float]] = []
         if f_pre > 0:
-            kf_lines.append(f"\t\t\t\t[0] = {{ 1.0, Flags = {{ Linear = true }} }}")
-        kf_lines.append(f"\t\t\t\t[{f_pre}] = {{ 1.0, Flags = {{ Linear = true }} }}")
-        kf_lines.append(f"\t\t\t\t[{f_peak_in}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }}")
-        kf_lines.append(f"\t\t\t\t[{f_peak_out}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }}")
-        kf_lines.append(f"\t\t\t\t[{f_post}] = {{ 1.0, Flags = {{ Linear = true }} }}")
+            kf_seq.append((0, 1.0))
+        kf_seq.append((f_pre, 1.0))
+        kf_seq.append((f_peak_in, zoom))
+        kf_seq.append((f_peak_out, zoom))
+        kf_seq.append((f_post, 1.0))
+
+        kf_lines: list[str] = []
+        for j, (t, v) in enumerate(kf_seq):
+            t_prev, v_prev = (kf_seq[j - 1] if j > 0 else (None, None))
+            t_next, v_next = (kf_seq[j + 1] if j < len(kf_seq) - 1 else (None, None))
+            kf_lines.append(_kf_with_handles(t, v, t_prev, v_prev, t_next, v_next))
         kf = ",\n".join(kf_lines)
 
         spline_block = (
@@ -261,7 +338,7 @@ def _build_extra_tools_impl(
         blocks.append(transform_block)
         prev_source = tool_name
 
-    return ",\n".join(blocks), prev_source
+    return ",\n".join(blocks), prev_source, groups
 
 
 def main() -> int:
@@ -444,7 +521,7 @@ def main() -> int:
         if not click_events:
             print("no click events to keyframe — done.")
             return 0
-        extra_tools, last_tool = build_extra_tools(
+        extra_tools, last_tool, groups = build_extra_tools(
             click_events,
             fps=fps,
             capture_scale=capture_scale,
@@ -454,7 +531,24 @@ def main() -> int:
             pre_ms=args.pre_ms,
             hold_ms=args.hold_ms,
             post_ms=args.post_ms,
+            viewport_w=viewport["width"],
+            viewport_h=viewport["height"],
         )
+        print(f"\ngrouped {len(click_events)} click(s) into {len(groups)} zoom region(s):")
+        for i, group in enumerate(groups, start=1):
+            t_first = group[0].get("t", 0) / 1000
+            t_last = group[-1].get("t", 0) / 1000
+            sum_x = sum_y = 0.0
+            for ev in group:
+                cx, cy = _bbox_center_css(ev)
+                sum_x += cx
+                sum_y += cy
+            mean_x = sum_x / len(group)
+            mean_y = sum_y / len(group)
+            labels = ", ".join((ev.get("label", "?") or "?")[:20] for ev in group)
+            print(f"  region {i}: t=[{t_first:.1f}s..{t_last:.1f}s], "
+                  f"mean=({mean_x:.0f},{mean_y:.0f}) css px, {len(group)} click(s)  "
+                  f"[{labels}]")
 
     patched = patch_comp_text(base_text, extra_tools, saver_source=last_tool)
     patched_path = str(out_dir / "_fusion_patched.comp")
