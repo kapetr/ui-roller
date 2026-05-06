@@ -83,27 +83,30 @@ def patch_comp_text(
     base_text: str,
     extra_tools: str,
 ) -> str:
-    """Insert extra_tools (one or more Tool definitions, comma-terminated)
-    just before the closing brace of the Tools = ordered() {} block in
-    base_text, and re-route MediaOut1's Input to come from Transform1
-    instead of MediaIn1.
+    """Insert extra_tools (Tool definitions) just before the closing brace
+    of the Tools = { ... } block in base_text, and re-route the Saver
+    (MediaOut1) to read from Transform1 instead of MediaIn1.
 
-    base_text is what TimelineItem.ExportFusionComp wrote — the auto-
-    generated comp that Resolve created on AddFusionComp() with MediaIn1
-    properly linked to the clip's source. Keeping that MediaIn1 verbatim
-    preserves the source linkage; if we generate a comp from scratch the
-    playhead gets stuck on one black frame.
+    Resolve's exported comps use:
+      - `Tools = { ... }`  (no `ordered()` wrapper)
+      - `MediaIn1 = Loader { ... }` with a CustomData.MediaProps block
+        carrying the source linkage we MUST preserve verbatim.
+      - `MediaOut1 = Saver { Inputs = { Input = Input { SourceOp = "MediaIn1", ... } } }`
+
+    Patching strategy:
+      1. Find `Tools = {`, walk braces to its match, insert our tools
+         just before that close brace.
+      2. Inside the resulting MediaOut1 = Saver { ... } block, replace
+         `SourceOp = "MediaIn1"` with `SourceOp = "Transform1"`.
     """
-    # Insert tools before the final "}" that closes Tools = ordered() {...}.
-    # Find the last "}" before the comp-level closing "}" — robustly: the
-    # Tools block is typically the only `ordered() {` block.
-    open_idx = base_text.find("Tools = ordered() {")
-    if open_idx < 0:
-        # Some Resolve versions use lowercase 'tools' or different format.
-        open_idx = base_text.find("Tools = ordered() {")
-    if open_idx < 0:
-        raise RuntimeError("couldn't find Tools = ordered() {} block in exported comp")
-    # Walk forward from open_idx counting braces to find the matching close.
+    import re
+
+    m = re.search(r"Tools\s*=\s*\{", base_text)
+    if not m:
+        raise RuntimeError("couldn't find 'Tools = {' block in exported comp")
+    open_idx = m.end() - 1  # position of the '{'
+
+    # Walk forward counting braces to find the matching close.
     depth = 0
     i = open_idx
     in_string = False
@@ -127,25 +130,23 @@ def patch_comp_text(
     if close_idx >= len(base_text):
         raise RuntimeError("couldn't find end of Tools block")
 
-    patched = base_text[:close_idx] + "\n" + extra_tools + "\n        " + base_text[close_idx:]
+    # Resolve's exporter doesn't put a trailing comma after the last tool;
+    # add one before our additions.
+    head = base_text[:close_idx].rstrip()
+    sep = "," if not head.endswith(",") else ""
+    patched = head + sep + "\n" + extra_tools + "\n\t\t" + base_text[close_idx:]
 
-    # Re-route MediaOut1.Input to read from Transform1 instead of MediaIn1.
-    # Replace the first occurrence inside the MediaOut1 block.
-    mo_start = patched.find("MediaOut1 = MediaOut")
-    if mo_start < 0:
-        raise RuntimeError("couldn't find MediaOut1 in exported comp")
-    # Find the next Input = ... { ... } after mo_start
-    inp = patched.find("Input = Input", mo_start)
-    if inp < 0:
-        raise RuntimeError("couldn't find MediaOut1.Input")
-    end = patched.find("}", inp)
-    if end < 0:
-        raise RuntimeError("couldn't find end of MediaOut1.Input")
-    patched = (
-        patched[:inp]
-        + 'Input = Input { SourceOp = "Transform1", Source = "Output" }'
-        + patched[end + 1:]
+    # Re-route the Saver (MediaOut1) to consume Transform1's output. Match
+    # the Saver-block SourceOp specifically so we don't disturb the Loader's
+    # `MediaIn1 = Loader` self-name elsewhere.
+    patched, n_replacements = re.subn(
+        r"(MediaOut1\s*=\s*Saver\s*\{[\s\S]*?SourceOp\s*=\s*\")MediaIn1(\")",
+        r"\1Transform1\2",
+        patched,
+        count=1,
     )
+    if n_replacements != 1:
+        raise RuntimeError("couldn't find MediaOut1's Saver SourceOp to re-route")
     return patched
 
 
