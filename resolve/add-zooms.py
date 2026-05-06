@@ -222,12 +222,19 @@ def _build_extra_tools_impl(
         #   [frame] = { value, Flags = { Linear = true } }
         # No handles, no LockedY — Linear flag is enough for straight-line
         # interpolation between keyframes, and Fusion derives handles itself.
-        kf = (
-            f"\t\t\t\t[{f_pre}] = {{ 1.0, Flags = {{ Linear = true }} }},\n"
-            f"\t\t\t\t[{f_peak_in}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }},\n"
-            f"\t\t\t\t[{f_peak_out}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }},\n"
-            f"\t\t\t\t[{f_post}] = {{ 1.0, Flags = {{ Linear = true }} }}"
-        )
+        #
+        # Anchor at frame 0 with value 1.0 so the spline doesn't extrapolate
+        # linearly backwards from f_pre (which would produce negative Size →
+        # degenerate transform → black output). Same idea at the very end:
+        # the f_post keyframe at 1.0 holds for everything after the click.
+        kf_lines: list[str] = []
+        if f_pre > 0:
+            kf_lines.append(f"\t\t\t\t[0] = {{ 1.0, Flags = {{ Linear = true }} }}")
+        kf_lines.append(f"\t\t\t\t[{f_pre}] = {{ 1.0, Flags = {{ Linear = true }} }}")
+        kf_lines.append(f"\t\t\t\t[{f_peak_in}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }}")
+        kf_lines.append(f"\t\t\t\t[{f_peak_out}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }}")
+        kf_lines.append(f"\t\t\t\t[{f_post}] = {{ 1.0, Flags = {{ Linear = true }} }}")
+        kf = ",\n".join(kf_lines)
 
         spline_block = (
             f"\t\t{size_name} = BezierSpline {{\n"
