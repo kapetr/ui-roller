@@ -107,8 +107,8 @@ This is the path for chat-heavy beats that aren't worth scripting.
 - [x] Logger / video clock alignment (`Screencast.firstFrame` → `Logger.alignTo`)
 - [x] Speech cue plumbing (`actions.click(target, { cue })`, `actual.timings.json`)
 - [x] Semantic `waitFor({ visible | text | networkIdle | predicate })`
-- [ ] **Click-effect compositor** ← next
-- [ ] Resolve export
+- [x] Click-effect compositor (expanding ring, antialiased, alpha-blended)
+- [ ] **Resolve export** ← next
 - [ ] Meet DAM scene
 - [ ] Hand-driven fallback (if Meet DAM needs it)
 

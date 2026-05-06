@@ -31,6 +31,23 @@ export const config = {
     fps: 30,
     finalCodec: "h264-hq" as "h264-hq" | "prores-hq",
     finalExtension: "mp4" as "mp4" | "mov",
+    clickEffect: {
+      // Animation life from click event onward. Ring expands and fades
+      // across this window.
+      durationMs: 500,
+      // Peak ring radius in CSS pixels (scaled to frame px at render time).
+      // 60 ≈ a comfortable ~6% of a 1080p frame's width.
+      peakRadiusCss: 60,
+      // Stroke thickness in CSS pixels. Stays constant through the
+      // animation; just the radius and alpha change.
+      strokeCss: 3,
+      // Ring colour [r, g, b] 0-255 plus peak alpha 0-1.
+      color: [255, 255, 255] as readonly [number, number, number],
+      peakAlpha: 0.85,
+      // Cubic-bezier for radius growth + alpha decay. iOS ease-out gives
+      // a satisfying fast-then-slow pulse.
+      easeBezier: [0.32, 0.72, 0, 1] as readonly [number, number, number, number],
+    },
     cursor: {
       // Sprite size as a fraction of the LAYOUT (CSS) viewport width.
       // 0.018 ≈ 35 CSS px @ 1920 → 70 frame px @ captureScale=2.

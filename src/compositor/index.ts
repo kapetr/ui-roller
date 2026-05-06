@@ -5,7 +5,11 @@ import { config } from "../shared/config.ts";
 import type { EventLog } from "../shared/events.ts";
 import { buildCursorPath } from "./cursor-path.ts";
 import { loadCursorSprite, streamCursorFrames } from "./cursor.ts";
-import { spawnCursorEncoder, compositeFinal } from "./ffmpeg.ts";
+import {
+  buildClickEffectsTimeline,
+  streamClickEffectFrames,
+} from "./click-effects.ts";
+import { spawnRgbaEncoder, compositeFinal } from "./ffmpeg.ts";
 
 async function main() {
   const sceneName = process.argv[2];
@@ -19,6 +23,7 @@ async function main() {
   const rawPath = resolve(outDir, `raw.${config.recording.extension}`);
   const eventsPath = resolve(outDir, "events.json");
   const cursorPath = resolve(outDir, "cursor.mov");
+  const clickPath = resolve(outDir, "click.mov");
   const finalPath = resolve(outDir, `final.${config.compositor.finalExtension}`);
 
   const log: EventLog = JSON.parse(await readFile(eventsPath, "utf8"));
@@ -52,41 +57,92 @@ async function main() {
   console.log(`  cursor sprite: ${sprite.width}×${sprite.height}px, hotpoint=(${sprite.hotpoint.x},${sprite.hotpoint.y})`);
 
   console.log(`▶ rendering ${path.samples.length} cursor frames @ ${path.fps}fps…`);
-  const renderStart = Date.now();
-  const ff = spawnCursorEncoder({
+  await renderRgbaTrack({
+    name: "cursor",
+    outputPath: cursorPath,
     width: frame.width,
     height: frame.height,
     fps: path.fps,
-    outputPath: cursorPath,
+    stream: (out) =>
+      streamCursorFrames({ path, sprite, frame, captureScale, out }),
   });
-  const ffStderr = collect(ff.stderr!);
-  const ffDone = waitClose(ff);
 
-  if (!ff.stdin) throw new Error("ffmpeg stdin missing");
-  await streamCursorFrames({
-    path,
-    sprite,
-    frame,
+  // Click ring track. Same target dimensions, same fps — overlays
+  // cleanly on cursor + raw. We always emit the file even if there
+  // are no click events; an empty transparent track is a valid input
+  // and keeps the final-composite filter graph constant.
+  const clickTimeline = buildClickEffectsTimeline(log, {
+    fps: config.compositor.fps,
+    durationMs: 1000 / config.compositor.fps,
+    totalDurationMs: durationMs + 100,
     captureScale,
-    out: ff.stdin,
+    effectDurationMs: config.compositor.clickEffect.durationMs,
+    peakRadiusCss: config.compositor.clickEffect.peakRadiusCss,
+    strokeCss: config.compositor.clickEffect.strokeCss,
+    color: config.compositor.clickEffect.color,
+    peakAlpha: config.compositor.clickEffect.peakAlpha,
+    ease: config.compositor.clickEffect.easeBezier,
   });
-  ff.stdin.end();
-  const code = await ffDone;
-  if (code !== 0) {
-    throw new Error(`cursor ffmpeg exited ${code}\n${(await ffStderr).slice(-2000)}`);
-  }
-  console.log(`✓ wrote ${cursorPath} (${((Date.now() - renderStart) / 1000).toFixed(1)}s)`);
+  const ringFrameCount = clickTimeline.frames.reduce(
+    (n, f) => n + f.rings.length,
+    0,
+  );
+  console.log(
+    `▶ rendering ${clickTimeline.frames.length} click-effect frames @ ${clickTimeline.fps}fps (${ringFrameCount} ring instances)…`,
+  );
+  await renderRgbaTrack({
+    name: "click",
+    outputPath: clickPath,
+    width: frame.width,
+    height: frame.height,
+    fps: clickTimeline.fps,
+    stream: (out) =>
+      streamClickEffectFrames({ timeline: clickTimeline, frame, out }),
+  });
 
   console.log(`▶ compositing final…`);
   const compStart = Date.now();
   await compositeFinal({
     basePath: rawPath,
-    cursorPath,
+    overlayPaths: [cursorPath, clickPath],
     outputPath: finalPath,
     fps: config.compositor.fps,
     finalCodec: config.compositor.finalCodec,
   });
   console.log(`✓ wrote ${finalPath} (${((Date.now() - compStart) / 1000).toFixed(1)}s)`);
+}
+
+type RgbaTrackOptions = {
+  name: string;
+  outputPath: string;
+  width: number;
+  height: number;
+  fps: number;
+  stream: (out: import("node:stream").Writable) => Promise<unknown>;
+};
+
+async function renderRgbaTrack(opts: RgbaTrackOptions): Promise<void> {
+  const start = Date.now();
+  const ff = spawnRgbaEncoder({
+    width: opts.width,
+    height: opts.height,
+    fps: opts.fps,
+    outputPath: opts.outputPath,
+  });
+  const ffStderr = collect(ff.stderr!);
+  const ffDone = waitClose(ff);
+  if (!ff.stdin) throw new Error(`${opts.name} ffmpeg stdin missing`);
+  await opts.stream(ff.stdin);
+  ff.stdin.end();
+  const code = await ffDone;
+  if (code !== 0) {
+    throw new Error(
+      `${opts.name} ffmpeg exited ${code}\n${(await ffStderr).slice(-2000)}`,
+    );
+  }
+  console.log(
+    `✓ wrote ${opts.outputPath} (${((Date.now() - start) / 1000).toFixed(1)}s)`,
+  );
 }
 
 async function probeDurationMs(path: string): Promise<number> {
