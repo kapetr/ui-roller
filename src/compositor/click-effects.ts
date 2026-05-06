@@ -47,7 +47,11 @@ export function buildClickEffectsTimeline(
   const clicks = log.events
     .filter((e): e is Extract<EventLog["events"][number], { kind: "click" }> => e.kind === "click")
     .map((e) => ({
-      t: e.t,
+      // Prefer effectT (page's first repaint after click) so the ring
+      // lands on the visual response frame, not the click-dispatch
+      // frame. Falls back to t when effectT is missing (older logs or
+      // Actions constructed without a frame waiter).
+      t: e.effectT ?? e.t,
       cx: e.x * opts.captureScale,
       cy: e.y * opts.captureScale,
     }));

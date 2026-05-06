@@ -2,6 +2,13 @@ import type { Locator, Page } from "playwright";
 import { config } from "../shared/config.ts";
 import type { Logger } from "../recorder/logger.ts";
 
+// Pluggable hook so Actions can wait for the next screencast frame after
+// a click without taking a hard dependency on the recorder/screencast
+// module. Provided by the recorder entry point at construction time.
+export type FrameWaiter = {
+  nextFrame: () => Promise<number>; // resolves with Date.now() of next frame
+};
+
 export type ActionOptions = {
   // Free-form label written to events.json — useful for analytics.
   label?: string;
@@ -37,6 +44,7 @@ export class Actions {
   constructor(
     public readonly page: Page,
     private readonly logger: Logger,
+    private readonly frameWaiter?: FrameWaiter,
   ) {}
 
   async navigate(url: string): Promise<void> {
@@ -78,19 +86,41 @@ export class Actions {
     // land here at the moment we log the click event — no drift, no
     // ghostly hovers ahead of the cursor.
     await sleep(config.compositor.cursor.travelMs);
+    const cursorArrivalT = this.logger.now();
+
+    // Arm a one-shot wait for the next screencast frame BEFORE
+    // dispatching mouse.click so we never miss the response paint.
+    // CDP screencast only emits a frame when the page repaints — on busy
+    // pages the click can sit in the render queue for hundreds of ms
+    // before the visible response. effectT is the wall time of that
+    // response frame, used by the click-effect compositor so the ring
+    // lands on the page-response frame, not the click-dispatch frame.
+    const frameWait = this.frameWaiter?.nextFrame();
+    await this.page.mouse.move(x, y, { steps: 20 });
+    await this.page.mouse.click(x, y);
+
+    let effectT: number | undefined;
+    if (frameWait) {
+      const responseWallMs = await Promise.race([
+        frameWait,
+        sleep(2000).then(() => null),
+      ]);
+      if (responseWallMs !== null) {
+        effectT = this.logger.now();
+      }
+    }
 
     this.logger.record({
       kind: "click",
-      t: this.logger.now(),
+      t: cursorArrivalT,
       x,
       y,
       bbox,
       label,
       target: typeof target === "string" ? target : undefined,
       cue,
+      effectT,
     });
-    await this.page.mouse.move(x, y, { steps: 20 });
-    await this.page.mouse.click(x, y);
   }
 
   async hover(

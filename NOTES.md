@@ -38,6 +38,28 @@ timestamp lines up with the cursor's arrival frame, so the effect will
 land on the cursor's frame regardless of when the page's own hover/
 active visual catches up.
 
+## Click-effect timing on busy pages
+The click ring is rendered at `event.effectT` if present, else `event.t`.
+`effectT` is set in `Actions.click` to the wall time of the next screencast
+frame after `mouse.click` — i.e., the first moment the page repaints in
+response to the click. On the static Keycloak login this lands within
+200 ms (button :active state); on busy DAM transitions it lands 1–1.7 s
+later, usually right when the destination page paints.
+
+It's a heuristic. The next emitted frame can sometimes be a tiny
+intermediate paint (a button hover dropping, a scrollbar redraw)
+rather than the destination's first paint. When that happens the ring
+fires earlier than the viewer perceives the click. Sturdier signals
+worth adding if it bites in real use:
+
+- Detect URL change post-click (catches navigation clicks reliably).
+- MutationObserver scoped to the main content area (catches state
+  changes that aren't full navigations).
+- Wait for screencast frame rate to fall idle (page has settled).
+
+For now we accept the heuristic — it's strictly better than tying the
+ring to click dispatch and the POC isn't gated on perfect sync here.
+
 ## Manual-drive mode (deferred)
 
 A second recorder mode where the user drives a non-headless browser by

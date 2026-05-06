@@ -15,6 +15,12 @@ export type Screencast = {
   // clock — Logger starts at construction (before browser launch + first
   // navigate + first paint) so its zero is offset from the video's zero.
   firstFrame: Promise<number>;
+  // Resolves with Date.now() of the next screencast frame to arrive
+  // after this method is called. Used by Actions.click to time click
+  // effects to the page's actual visual response (the page only emits
+  // a screencast frame when it repaints — busy pages can lag the click
+  // dispatch by hundreds of ms while the response renders).
+  nextFrame: () => Promise<number>;
 };
 
 export type ScreencastOptions = {
@@ -40,6 +46,7 @@ export async function startScreencast(
 
   let resolveFirstFrame!: (wallMs: number) => void;
   const firstFrame = new Promise<number>((r) => (resolveFirstFrame = r));
+  const frameWaiters: Array<(wallMs: number) => void> = [];
 
   const ext = opts.format === "png" ? "png" : "jpg";
 
@@ -48,9 +55,14 @@ export async function startScreencast(
     const { data, sessionId, metadata } = params;
     const ts = metadata.timestamp;
     if (typeof ts !== "number") return;
+    const wallNow = Date.now();
     if (firstTs === null) {
       firstTs = ts;
-      resolveFirstFrame(Date.now());
+      resolveFirstFrame(wallNow);
+    }
+    if (frameWaiters.length > 0) {
+      const ws = frameWaiters.splice(0);
+      for (const w of ws) w(wallNow);
     }
 
     const index = frames.length;
@@ -77,6 +89,8 @@ export async function startScreencast(
 
   return {
     firstFrame,
+    nextFrame: () =>
+      new Promise<number>((resolve) => frameWaiters.push(resolve)),
     async stop() {
       stopped = true;
       try {

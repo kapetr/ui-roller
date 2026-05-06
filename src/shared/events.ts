@@ -13,6 +13,12 @@ export type ClickEvent = EventBase & {
   x: number;
   y: number;
   bbox?: { x: number; y: number; width: number; height: number };
+  // Optional: when the page actually visually responded to the click
+  // (first screencast frame after mouse.click). Used by the click-effect
+  // compositor so the ring lands on the page-response frame, not the
+  // click-dispatch frame — they can differ by hundreds of ms on busy
+  // pages. Falls back to t when missing.
+  effectT?: number;
 };
 
 export type MoveEvent = EventBase & {

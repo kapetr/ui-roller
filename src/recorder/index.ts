@@ -60,7 +60,6 @@ async function main() {
 
   const logger = new Logger(config.viewport, config.captureScale, cues);
   const browser = await openBrowser();
-  const actions = new Actions(browser.page, logger);
 
   console.log(`▶ recording scene: ${sceneName}`);
   const start = Date.now();
@@ -70,6 +69,14 @@ async function main() {
     jpegQuality: config.recording.jpegQuality,
     everyNthFrame: config.recording.everyNthFrame,
   });
+
+  // Construct Actions after the screencast so we can hand it the
+  // frame-waiter for click-effect timing (next screencast frame after
+  // mouse.click = the page's actual visual response).
+  const actions = new Actions(browser.page, logger, {
+    nextFrame: () => screencast.nextFrame(),
+  });
+
   // The video's t=0 is the first screencast frame, not the moment we
   // constructed the logger. Re-zero the logger as soon as that frame
   // arrives so events.json times match video frame times exactly.
