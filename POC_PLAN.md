@@ -111,8 +111,9 @@ This is the path for chat-heavy beats that aren't worth scripting.
 - [x] Click-effect timing tied to page-response paint (`effectT`)
 - [x] Resolve export skeleton (probe.py + to-resolve.py — import V1/V2/V3 + A1, click markers)
 - [ ] Resolve transform keyframes (deferred to v1 — script-driven keyframes are limited; user adds zoom/pan around blue markers in editor)
-- [ ] **Meet DAM scene** ← next
-- [ ] Hand-driven fallback (if Meet DAM needs it)
+- [x] Meet DAM scene scaffold (`src/scenes/meet-dam.ts`) — every script beat wired to a cue, deterministic beats fully scripted, agent-creation/chat beats marked TODO with selector slots awaiting UI verification
+- [ ] **Drive Meet DAM end-to-end** — fill in TODO selectors against the live cluster, decide canned-vs-hand-driven for the chat segment
+- [ ] Hand-driven fallback (if Meet DAM chat needs it)
 
 ## Open questions
 

@@ -23,6 +23,7 @@ type Scene = {
 const scenes: Record<string, () => Promise<Scene>> = {
   smoke: () => import("../scenes/smoke.ts"),
   humr: () => import("../scenes/humr.ts"),
+  "meet-dam": () => import("../scenes/meet-dam.ts"),
 };
 
 async function main() {
