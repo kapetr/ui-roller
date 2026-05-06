@@ -9,8 +9,9 @@ browser.
 1. I run `pnpm record-manual http://humr.localhost:4444/`
 2. A Chromium window opens at the configured viewport (1920×1080).
 3. You click through the steps below at a natural pace.
-4. When you're done, click the red **⏹ Stop recording** button in the
-   bottom-right corner of the browser (or just close the window).
+4. When you're done, **close the browser window** (Cmd+W, or click the
+   red ✕). Hold for ~1 s after your last click first so the final
+   action makes it into the recording cleanly.
 5. I run `pnpm assemble` to composite the cursor + click rings.
 
 Every mousemove (sampled at 30 Hz) and every click (with element bbox)
@@ -58,9 +59,10 @@ The agents page shows three pills at the top: *Set up a provider*,
 - Click **Agents** in the sidebar to return to the agents list.
 
 ### 4. Stop
-Click the red **⏹ Stop recording** button in the bottom-right corner of
-the browser. The recorder finalizes encoding automatically; you don't
-need to touch the terminal.
+Hold for ~1 s after your last click (so the final action lands cleanly
+in the recording), then close the browser window — Cmd+W or the red ✕.
+The recorder finalizes encoding automatically; you don't need to touch
+the terminal.
 
 ## Total expected duration: ~20–30 seconds.
 

@@ -135,9 +135,6 @@ async function main() {
       document.addEventListener('click', (e) => {
         if (e.button !== 0) return;
         const t = e.target;
-        // Skip the stop-recording overlay so its click doesn't create a
-        // ring effect at the bottom-right corner.
-        if (t && t.closest && t.closest('#__rec_stop')) return;
         const b = t && t.getBoundingClientRect ? t.getBoundingClientRect() : { x: e.clientX, y: e.clientY, width: 0, height: 0 };
         const label = (t && t.getAttribute && (t.getAttribute('aria-label') || t.id)) ||
                       (t && t.innerText && t.innerText.trim().slice(0, 40)) ||
@@ -153,48 +150,6 @@ async function main() {
           });
         }
       }, true);
-
-      // Floating "stop recording" button. Fixed bottom-right; clicking
-      // it ends the recording without creating a click ring (handler
-      // above filters by id). Visible in the captured frames — that's
-      // a deliberate trade for not needing terminal stdin.
-      const installStop = () => {
-        if (document.getElementById('__rec_stop')) return;
-        if (!document.body) return;
-        const btn = document.createElement('div');
-        btn.id = '__rec_stop';
-        btn.textContent = '⏹ Stop recording';
-        btn.style.cssText = [
-          'position:fixed', 'bottom:12px', 'right:12px',
-          'z-index:2147483647',
-          'background:#dc2626', 'color:white',
-          'padding:10px 16px', 'border-radius:8px',
-          'font:600 14px -apple-system,BlinkMacSystemFont,sans-serif',
-          'cursor:pointer',
-          'box-shadow:0 4px 12px rgba(0,0,0,0.4)',
-          'user-select:none', 'pointer-events:auto',
-        ].join(';');
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          btn.style.display = 'none';
-          if (typeof window.__rec === 'function') {
-            window.__rec({ kind: 'stop' });
-          }
-        }, true);
-        document.body.appendChild(btn);
-      };
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', installStop);
-      } else {
-        installStop();
-      }
-      // Re-install if the body changes under us (SPA route renders, etc.)
-      const mo = new MutationObserver(() => installStop());
-      if (document.documentElement) {
-        mo.observe(document.documentElement, { childList: true, subtree: false });
-      }
     })();
   `);
 
@@ -221,8 +176,8 @@ async function main() {
   console.log("");
   console.log("──────────────────────────────────────────────────");
   console.log("  RECORDING. Drive the browser through your scene.");
-  console.log("  Click ⏹ Stop recording (bottom-right of the");
-  console.log("  browser) when done — or just close the window.");
+  console.log("  Hold for ~1 s after your last click, then close");
+  console.log("  the browser window (Cmd+W, or red ✕) to stop.");
   console.log("──────────────────────────────────────────────────");
   console.log("");
 
