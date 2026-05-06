@@ -226,46 +226,57 @@ def main() -> int:
 
     print(f"\napplying zoom keyframes for {len(click_events)} clicks…")
 
-    # Anchor a baseline keyframe at clip frame 0 so the ramp-in has
-    # a starting point. The first SetInput at a time index promotes the
-    # parameter to animated; subsequent calls add keyframes.
-    xform.SetInput("Size", 1.0, 0)
-    xform.SetInput("Center", [0.5, 0.5], 0)
+    # Keyframing approach: AutoKey on + comp.CurrentTime + SetInput.
+    # The third-arg time form of SetInput doesn't promote a parameter to
+    # animated reliably across Resolve versions (we tested — it just sets
+    # static). The autokey approach is the documented Fusion idiom: set
+    # CurrentTime to a frame, then SetInput; Fusion creates a BezierSpline
+    # modifier the first time a value differs from the previous keyframe.
+    # Wrap the whole batch so we can leave AutoKey off when we're done.
+    prev_autokey = comp.GetAttrs().get("COMPB_AutoKeyOn", False)
+    comp.SetAttrs({"COMPB_AutoKeyOn": True})
+
+    def keyframe(time: int, size_val: float, center_val: list) -> None:
+        comp.CurrentTime = time
+        xform.SetInput("Size", float(size_val))
+        xform.SetInput("Center", center_val)
+
+    # Baseline keyframe at frame 0 so subsequent value differences become
+    # animation rather than static overwrites.
+    keyframe(0, 1.0, [0.5, 0.5])
 
     success = 0
-    for ev in click_events:
-        # event.t is video time (ms). Convert to clip-local frame number
-        # (Fusion comp uses clip-relative time, with frame 0 = clip start).
-        click_frame = ms_to_frames(ev.get("t", 0), fps)
-        f_pre = max(0, click_frame - pre_frames)
-        f_peak_in = click_frame
-        f_peak_out = click_frame + hold_frames
-        f_post = f_peak_out + post_frames
+    try:
+        for ev in click_events:
+            # event.t is video time (ms). Convert to clip-local frame
+            # number (Fusion comp time = clip-relative, frame 0 = clip start).
+            click_frame = ms_to_frames(ev.get("t", 0), fps)
+            f_pre = max(0, click_frame - pre_frames)
+            f_peak_in = click_frame
+            f_peak_out = click_frame + hold_frames
+            f_post = f_peak_out + post_frames
 
-        bbox = ev.get("bbox") or {"x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0}
-        bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
-        bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
-        cx_norm = bbox_cx / frame_w
-        # Fusion's Y is bottom-up; screencast Y is top-down. Flip.
-        cy_norm = 1.0 - (bbox_cy / frame_h)
+            bbox = ev.get("bbox") or {"x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0}
+            bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
+            bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
+            cx_norm = bbox_cx / frame_w
+            # Fusion's Y is bottom-up; screencast Y is top-down. Flip.
+            cy_norm = 1.0 - (bbox_cy / frame_h)
 
-        try:
-            xform.SetInput("Size", 1.0, f_pre)
-            xform.SetInput("Size", float(args.zoom), f_peak_in)
-            xform.SetInput("Size", float(args.zoom), f_peak_out)
-            xform.SetInput("Size", 1.0, f_post)
-
-            xform.SetInput("Center", [0.5, 0.5], f_pre)
-            xform.SetInput("Center", [cx_norm, cy_norm], f_peak_in)
-            xform.SetInput("Center", [cx_norm, cy_norm], f_peak_out)
-            xform.SetInput("Center", [0.5, 0.5], f_post)
-            success += 1
-            label = (ev.get("cue") or ev.get("label") or "click")[:36]
-            print(f"  ✓ {label:36s}  frame {click_frame:5d}  "
-                  f"center→({cx_norm:.3f},{cy_norm:.3f})")
-        except Exception as e:
-            label = ev.get("label", "click")[:36]
-            print(f"  ✗ {label:36s}  frame {click_frame:5d}  ERROR: {e}")
+            try:
+                keyframe(f_pre, 1.0, [0.5, 0.5])
+                keyframe(f_peak_in, float(args.zoom), [cx_norm, cy_norm])
+                keyframe(f_peak_out, float(args.zoom), [cx_norm, cy_norm])
+                keyframe(f_post, 1.0, [0.5, 0.5])
+                success += 1
+                label = (ev.get("cue") or ev.get("label") or "click")[:36]
+                print(f"  ✓ {label:36s}  frame {click_frame:5d}  "
+                      f"center→({cx_norm:.3f},{cy_norm:.3f})")
+            except Exception as e:
+                label = ev.get("label", "click")[:36]
+                print(f"  ✗ {label:36s}  frame {click_frame:5d}  ERROR: {e}")
+    finally:
+        comp.SetAttrs({"COMPB_AutoKeyOn": prev_autokey})
 
     print(f"\n{success}/{len(click_events)} zoom pulses written.")
     print("Switch to the Fusion page on the V1 clip to inspect / tweak the")
