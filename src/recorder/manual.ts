@@ -226,8 +226,18 @@ async function main() {
     })
     .catch(() => {});
 
-  // Closing the browser window is also a valid stop signal.
+  // Stop signals. Ideally browser.on("disconnected") fires when the
+  // user closes the window — but on macOS Chromium often keeps the
+  // process alive after Cmd+W / red ✕, so listen on every layer
+  // (page, context, browser) plus SIGINT for terminal-side abort.
+  // resolveStop is idempotent; whichever fires first wins.
+  page.on("close", () => resolveStop());
+  context.on("close", () => resolveStop());
   browser.on("disconnected", () => resolveStop());
+  process.on("SIGINT", () => {
+    console.log("\n(ctrl-c received, stopping)");
+    resolveStop();
+  });
 
   console.log("");
   console.log("──────────────────────────────────────────────────");
