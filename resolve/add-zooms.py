@@ -14,18 +14,25 @@ OPTIONS
     --pre-ms        zoom-in ramp duration before the click (default: 300)
     --hold-ms      hold at peak after click (default: 400)
     --post-ms       zoom-out ramp duration (default: 400)
+    --static        diagnostic — apply a single static zoom around the
+                    first click only, no keyframes
+    --clear         delete any existing Fusion comp on the V1 clip
+                    before importing (use to start fresh after a failed
+                    earlier run)
 
-WHY FUSION
-    Resolve's edit-page Inspector keyframes aren't exposed via the
-    scripting API in any reliable way — TimelineItem.SetProperty only
-    sets static values. The only documented + working approach for
-    keyframed transform animation is a Fusion composition on the clip:
-    insert a Transform tool, set Size + Center keyframes via the
-    `tool.Input[frame] = value` syntax. That's what this does.
+WHY COMP-FILE IMPORT
+    The Fusion-Python API for setting keyframes (SetInput with a time
+    argument; comp.AutoKey + CurrentTime + SetInput; tool.Param[time] =
+    value) all silently fail to promote a parameter to animated under
+    the Resolve we tested. The reliable path is to generate a Fusion
+    composition (.comp) text file with BezierSpline keyframes pre-baked
+    in the Lua-table format Fusion saves natively, then attach it to
+    the clip with TimelineItem.ImportFusionComp(path) — a documented
+    stable API.
 
-    Side effect: the clip on V1 gains a Fusion composition. To edit
-    the zoom curves by hand later, double-click the clip and switch
-    to the Fusion page.
+    Side effect: the V1 clip gains a new Fusion composition. To edit
+    the zoom curves by hand later, double-click the clip and switch to
+    the Fusion page.
 
 REQUIREMENTS
     - Resolve Studio (Free version doesn't expose scripting).
@@ -38,6 +45,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 DEFAULT_API = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
@@ -52,6 +60,134 @@ def ms_to_frames(ms: float, fps: float) -> int:
     return int(round(ms / 1000.0 * fps))
 
 
+def fmt_keyframe_size(frame: int, value: float) -> str:
+    return (
+        f"            [{frame}] = {{ {value:.4f}, "
+        f"RH = {{ 1, 0 }}, LH = {{ -1, 0 }}, "
+        f"Flags = {{ Linear = true, LockedY = true }} }},"
+    )
+
+
+def fmt_keyframe_path(frame: int, t_progress: float, x: float, y: float) -> str:
+    """XYPath keyframe format. The leading number is the path's normalized
+    time progress (0..1 across the whole path)."""
+    return (
+        f"            [{frame}] = {{ {t_progress:.6f}, "
+        f"X = {x:.4f}, Y = {y:.4f}, "
+        f"RX = 0.0, RY = 0.0, LX = 0.0, LY = 0.0, "
+        f"Flags = {{ Linear = true, LinearAcceleration = true }} }},"
+    )
+
+
+def build_comp_text(
+    click_events: list[dict],
+    *,
+    fps: float,
+    capture_scale: float,
+    frame_w: int,
+    frame_h: int,
+    zoom: float,
+    pre_ms: int,
+    hold_ms: int,
+    post_ms: int,
+) -> str:
+    """Build a Fusion .comp file text with MediaIn → Transform (animated
+    Size + Center via BezierSpline + XYPath) → MediaOut.
+    """
+    pre_frames = ms_to_frames(pre_ms, fps)
+    hold_frames = ms_to_frames(hold_ms, fps)
+    post_frames = ms_to_frames(post_ms, fps)
+
+    # (frame, value) for Size; (frame, x, y) for Center.
+    size_kf: list[tuple[int, float]] = [(0, 1.0)]
+    center_kf: list[tuple[int, float, float]] = [(0, 0.5, 0.5)]
+    last_frame = 0
+
+    for ev in click_events:
+        click_frame = ms_to_frames(ev.get("t", 0), fps)
+        f_pre = max(0, click_frame - pre_frames)
+        f_peak_in = click_frame
+        f_peak_out = click_frame + hold_frames
+        f_post = f_peak_out + post_frames
+
+        bbox = ev.get("bbox") or {
+            "x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0,
+        }
+        bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
+        bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
+        cx_norm = bbox_cx / frame_w
+        # Fusion's Y is bottom-up; screencast Y is top-down.
+        cy_norm = 1.0 - (bbox_cy / frame_h)
+
+        size_kf += [
+            (f_pre, 1.0),
+            (f_peak_in, zoom),
+            (f_peak_out, zoom),
+            (f_post, 1.0),
+        ]
+        center_kf += [
+            (f_pre, 0.5, 0.5),
+            (f_peak_in, cx_norm, cy_norm),
+            (f_peak_out, cx_norm, cy_norm),
+            (f_post, 0.5, 0.5),
+        ]
+        last_frame = max(last_frame, f_post)
+
+    # Path progress is 0..1 evenly across keyframes.
+    n_path = max(1, len(center_kf) - 1)
+    path_lines = "\n".join(
+        fmt_keyframe_path(f, i / n_path, x, y)
+        for i, (f, x, y) in enumerate(center_kf)
+    )
+    size_lines = "\n".join(fmt_keyframe_size(f, v) for f, v in size_kf)
+    end_frame = last_frame + 30
+
+    return f"""Composition {{
+    CurrentTime = 0,
+    RenderRange = {{ 0, {end_frame} }},
+    GlobalRange = {{ 0, {end_frame} }},
+    CustomControls = ordered() {{}},
+    Tools = ordered() {{
+        MediaIn1 = MediaIn {{
+            CtrlWZoom = false,
+            ViewInfo = OperatorInfo {{ Pos = {{ 0, 0 }} }},
+        }},
+        SizeAnim = BezierSpline {{
+            SplineColor = {{ Red = 252, Green = 102, Blue = 153 }},
+            CtrlWZoom = false,
+            NameSet = true,
+            KeyFrames = {{
+{size_lines}
+            }},
+        }},
+        CenterAnim = XYPath {{
+            DrawMode = "ModifyOnly",
+            CtrlWZoom = false,
+            NameSet = true,
+            KeyFrames = {{
+{path_lines}
+            }},
+        }},
+        Transform1 = Transform {{
+            CtrlWZoom = false,
+            Inputs = {{
+                Center = Input {{ SourceOp = "CenterAnim", Source = "Position" }},
+                Size = Input {{ SourceOp = "SizeAnim", Source = "Value" }},
+                Input = Input {{ SourceOp = "MediaIn1", Source = "Output" }},
+            }},
+            ViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
+        }},
+        MediaOut1 = MediaOut {{
+            Inputs = {{
+                Input = Input {{ SourceOp = "Transform1", Source = "Output" }},
+            }},
+            ViewInfo = OperatorInfo {{ Pos = {{ 440, 0 }} }},
+        }},
+    }}
+}}
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default="out")
@@ -59,19 +195,10 @@ def main() -> int:
     parser.add_argument("--pre-ms", type=int, default=300, help="ramp-in duration before click (ms)")
     parser.add_argument("--hold-ms", type=int, default=400, help="hold-at-peak duration after click (ms)")
     parser.add_argument("--post-ms", type=int, default=400, help="ramp-out duration (ms)")
-    parser.add_argument(
-        "--clear",
-        action="store_true",
-        help="if the V1 clip already has a Fusion comp, delete it first "
-             "(otherwise we error out instead of clobbering custom work)",
-    )
-    parser.add_argument(
-        "--static",
-        action="store_true",
-        help="DIAGNOSTIC: apply a single static zoom around the first "
-             "click's bbox, no keyframes. Use this to verify the Fusion "
-             "wiring works at all before worrying about per-click pulses.",
-    )
+    parser.add_argument("--clear", action="store_true",
+                        help="delete any existing Fusion comp on V1 first")
+    parser.add_argument("--static", action="store_true",
+                        help="DIAGNOSTIC: static zoom anchored on first click, no keyframes")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
@@ -79,9 +206,7 @@ def main() -> int:
     if not events_path.exists():
         print(f"FAIL: {events_path} not found", file=sys.stderr)
         return 2
-
-    with events_path.open() as f:
-        events = json.load(f)
+    events = json.loads(events_path.read_text())
 
     capture_scale = events.get("captureScale", 1)
     viewport = events.get("viewport", {"width": 1920, "height": 1080})
@@ -110,8 +235,6 @@ def main() -> int:
         return 5
 
     fps = float(project.GetSetting("timelineFrameRate") or "30")
-    timeline_start = timeline.GetStartFrame()
-
     v1_items = timeline.GetItemListInTrack("video", 1)
     if not v1_items:
         print("FAIL: V1 is empty", file=sys.stderr)
@@ -119,169 +242,92 @@ def main() -> int:
     if len(v1_items) > 1:
         print(f"WARN: V1 has {len(v1_items)} clips — using the first one. "
               "Did you forget to merge into a compound?")
-
     clip = v1_items[0]
-    clip_start = clip.GetStart()  # absolute timeline frame
     print(f"target clip:    {clip.GetName()}")
-    print(f"clip start:     frame {clip_start}")
     print(f"timeline fps:   {fps}")
     print(f"frame size:     {frame_w}×{frame_h}")
 
-    # Ensure / acquire a Fusion composition on the clip.
-    n_comps = clip.GetFusionCompCount()
-    if n_comps > 0 and not args.clear:
-        print(f"\nFAIL: clip already has {n_comps} Fusion composition(s). "
-              "Pass --clear to delete it and start fresh.", file=sys.stderr)
-        return 7
-
-    if n_comps > 0 and args.clear:
-        for i in range(n_comps, 0, -1):
-            comp = clip.GetFusionCompByIndex(i)
-            name = comp.GetAttrs()["COMPS_Name"] if comp else f"comp{i}"
+    # Clear existing Fusion comps first (so we're idempotent).
+    if args.clear or clip.GetFusionCompCount() > 0:
+        n = clip.GetFusionCompCount()
+        for name in clip.GetFusionCompNameList():
             ok = clip.DeleteFusionCompByName(name)
             print(f"  deleted Fusion comp: {name} → {ok}")
-
-    # Add a fresh Fusion comp. AddFusionComp returns the comp object.
-    comp = clip.AddFusionComp()
-    if comp is None:
-        print("FAIL: AddFusionComp returned None", file=sys.stderr)
-        return 8
-
-    # Default Fusion comp on a clip has MediaIn1 → MediaOut1. We insert
-    # a Transform between them.
-    media_in = comp.FindTool("MediaIn1")
-    media_out = comp.FindTool("MediaOut1")
-    if not media_in or not media_out:
-        print("FAIL: couldn't find MediaIn1 / MediaOut1 in the new comp",
-              file=sys.stderr)
-        return 9
-
-    # AddTool(name, x, y) — x/y are flow-graph coords; -1,-1 lets Resolve
-    # pick a spot. Returns the new tool.
-    xform = comp.AddTool("Transform", -1, -1)
-    if not xform:
-        print("FAIL: AddTool('Transform') returned None", file=sys.stderr)
-        return 10
-
-    # Wire MediaIn → Transform → MediaOut. The reliable Fusion-Python form
-    # for connecting + setting params is tool.SetInput(name, source_or_value
-    # [, time]). Passing a tool object auto-uses its Output.
-    xform.SetInput("Input", media_in)
-    media_out.SetInput("Input", xform)
-    print(f"  wired: {media_in.Name} → {xform.Name} → {media_out.Name}")
-
-    # Read back to verify connections actually took.
-    in_src = xform.GetInput("Input")
-    out_src = media_out.GetInput("Input")
-    print(f"  xform.Input source: {in_src!r}")
-    print(f"  MediaOut.Input source: {out_src!r}")
-    if in_src is None or out_src is None:
-        print(
-            "\nWARN: connections don't look applied. The Transform is in the\n"
-            "      flow graph but not wired up — that's why no zoom shows.\n"
-            "      Try opening the comp in Fusion and dragging arrows manually,\n"
-            "      then re-run with --static to test if zoom values stick."
-        )
-
-    # Compute keyframe windows + anchor coords per click.
-    pre_frames = ms_to_frames(args.pre_ms, fps)
-    hold_frames = ms_to_frames(args.hold_ms, fps)
-    post_frames = ms_to_frames(args.post_ms, fps)
 
     click_events = [e for e in events.get("events", []) if e.get("kind") == "click"]
 
     if args.static:
+        # Sanity test: build a comp with NO animation, just Transform set
+        # to a fixed zoom around the first click. We've confirmed this
+        # path produces visible zoom; the keyframed path is what's been
+        # broken.
         if not click_events:
-            print("FAIL: --static needs at least one click event in events.json",
-                  file=sys.stderr)
-            return 11
+            print("FAIL: --static needs at least one click event", file=sys.stderr)
+            return 7
         ev = click_events[0]
-        bbox = ev.get("bbox") or {"x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0}
+        bbox = ev.get("bbox") or {"x": ev["x"], "y": ev["y"], "width": 0, "height": 0}
         bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
         bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
-        cx_norm = bbox_cx / frame_w
-        cy_norm = 1.0 - (bbox_cy / frame_h)
-
-        print(f"\n--static: applying single zoom anchored on first click")
-        print(f"  click label:  {ev.get('label', '<unknown>')}")
-        print(f"  bbox center:  ({bbox_cx:.0f}, {bbox_cy:.0f}) source px")
-        print(f"  Center input: ({cx_norm:.3f}, {cy_norm:.3f}) Fusion-normalised")
-        print(f"  Size input:   {args.zoom}")
-
-        xform.SetInput("Size", float(args.zoom))
-        xform.SetInput("Center", [cx_norm, cy_norm])
-
-        # Read back.
-        size_now = xform.GetInput("Size")
-        center_now = xform.GetInput("Center")
-        print(f"\n  read-back:")
-        print(f"    Size   = {size_now!r}")
-        print(f"    Center = {center_now!r}")
-        print(
-            "\nIf you see a static zoom in the Resolve viewer, the wiring +\n"
-            "static SetInput work. Re-run without --static for the keyframed\n"
-            "per-click pulses."
+        cx = bbox_cx / frame_w
+        cy = 1.0 - (bbox_cy / frame_h)
+        comp_text = f"""Composition {{
+    CurrentTime = 0,
+    Tools = ordered() {{
+        MediaIn1 = MediaIn {{ ViewInfo = OperatorInfo {{ Pos = {{ 0, 0 }} }} }},
+        Transform1 = Transform {{
+            Inputs = {{
+                Center = Input {{ Value = {{ {cx:.4f}, {cy:.4f} }} }},
+                Size = Input {{ Value = {args.zoom:.4f} }},
+                Input = Input {{ SourceOp = "MediaIn1", Source = "Output" }},
+            }},
+            ViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
+        }},
+        MediaOut1 = MediaOut {{
+            Inputs = {{ Input = Input {{ SourceOp = "Transform1", Source = "Output" }} }},
+            ViewInfo = OperatorInfo {{ Pos = {{ 440, 0 }} }},
+        }},
+    }}
+}}
+"""
+    else:
+        if not click_events:
+            print("no click events to keyframe — done.")
+            return 0
+        comp_text = build_comp_text(
+            click_events,
+            fps=fps,
+            capture_scale=capture_scale,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            zoom=float(args.zoom),
+            pre_ms=args.pre_ms,
+            hold_ms=args.hold_ms,
+            post_ms=args.post_ms,
         )
-        return 0
 
-    print(f"\napplying zoom keyframes for {len(click_events)} clicks…")
+    # Write comp file to a temp path and import it onto the clip.
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".comp", delete=False, dir=str(out_dir)
+    ) as f:
+        f.write(comp_text)
+        comp_path = f.name
 
-    # Keyframing approach: AutoKey on + comp.CurrentTime + SetInput.
-    # The third-arg time form of SetInput doesn't promote a parameter to
-    # animated reliably across Resolve versions (we tested — it just sets
-    # static). The autokey approach is the documented Fusion idiom: set
-    # CurrentTime to a frame, then SetInput; Fusion creates a BezierSpline
-    # modifier the first time a value differs from the previous keyframe.
-    # Wrap the whole batch so we can leave AutoKey off when we're done.
-    prev_autokey = comp.GetAttrs().get("COMPB_AutoKeyOn", False)
-    comp.SetAttrs({"COMPB_AutoKeyOn": True})
+    print(f"\ncomp file: {comp_path}")
+    print(f"  size:    {len(comp_text)} chars")
+    print(f"  clicks:  {len(click_events)} keyframed")
 
-    def keyframe(time: int, size_val: float, center_val: list) -> None:
-        comp.CurrentTime = time
-        xform.SetInput("Size", float(size_val))
-        xform.SetInput("Center", center_val)
+    new_comp = clip.ImportFusionComp(comp_path)
+    if new_comp is None:
+        print(f"\nFAIL: ImportFusionComp returned None.")
+        print(f"      Inspect {comp_path} — Fusion couldn't parse it.")
+        return 10
 
-    # Baseline keyframe at frame 0 so subsequent value differences become
-    # animation rather than static overwrites.
-    keyframe(0, 1.0, [0.5, 0.5])
-
-    success = 0
-    try:
-        for ev in click_events:
-            # event.t is video time (ms). Convert to clip-local frame
-            # number (Fusion comp time = clip-relative, frame 0 = clip start).
-            click_frame = ms_to_frames(ev.get("t", 0), fps)
-            f_pre = max(0, click_frame - pre_frames)
-            f_peak_in = click_frame
-            f_peak_out = click_frame + hold_frames
-            f_post = f_peak_out + post_frames
-
-            bbox = ev.get("bbox") or {"x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0}
-            bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
-            bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
-            cx_norm = bbox_cx / frame_w
-            # Fusion's Y is bottom-up; screencast Y is top-down. Flip.
-            cy_norm = 1.0 - (bbox_cy / frame_h)
-
-            try:
-                keyframe(f_pre, 1.0, [0.5, 0.5])
-                keyframe(f_peak_in, float(args.zoom), [cx_norm, cy_norm])
-                keyframe(f_peak_out, float(args.zoom), [cx_norm, cy_norm])
-                keyframe(f_post, 1.0, [0.5, 0.5])
-                success += 1
-                label = (ev.get("cue") or ev.get("label") or "click")[:36]
-                print(f"  ✓ {label:36s}  frame {click_frame:5d}  "
-                      f"center→({cx_norm:.3f},{cy_norm:.3f})")
-            except Exception as e:
-                label = ev.get("label", "click")[:36]
-                print(f"  ✗ {label:36s}  frame {click_frame:5d}  ERROR: {e}")
-    finally:
-        comp.SetAttrs({"COMPB_AutoKeyOn": prev_autokey})
-
-    print(f"\n{success}/{len(click_events)} zoom pulses written.")
-    print("Switch to the Fusion page on the V1 clip to inspect / tweak the")
-    print("Transform tool's Size and Center curves. Right-click any keyframe")
-    print("→ Smooth for nicer ease.")
+    print(f"\n✓ imported as Fusion comp on V1 clip")
+    if not args.static:
+        print(f"  Size:   1.0 → {args.zoom} → 1.0 around each click")
+        print(f"  Center: animates to bbox centre, returns to (0.5, 0.5)")
+    print("\nIn Resolve: switch to the Fusion page, click Transform1, you")
+    print("should see Size + Center as animated curves with keyframes.")
     return 0
 
 
