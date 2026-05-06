@@ -300,11 +300,17 @@ def main() -> int:
     print(f"timeline fps:   {fps}")
     print(f"frame size:     {frame_w}×{frame_h}")
 
-    # Clear existing Fusion comps first (so we're idempotent).
+    # Clear existing Fusion comps first. DeleteFusionCompByName has been
+    # observed returning False even when the delete succeeded; just log
+    # and move on rather than treating False as fatal.
     if args.clear or clip.GetFusionCompCount() > 0:
-        for name in clip.GetFusionCompNameList():
+        for name in list(clip.GetFusionCompNameList()):
             ok = clip.DeleteFusionCompByName(name)
             print(f"  deleted Fusion comp: {name} → {ok}")
+        remaining = clip.GetFusionCompCount()
+        if remaining > 0:
+            print(f"  WARN: {remaining} comp(s) remain after delete — "
+                  f"will export the latest one anyway")
 
     click_events = [e for e in events.get("events", []) if e.get("kind") == "click"]
 
@@ -316,13 +322,18 @@ def main() -> int:
         print("FAIL: AddFusionComp returned None", file=sys.stderr)
         return 7
 
-    # Step 2: export it to a temp file so we can patch the auto-linked
-    # MediaIn1 verbatim into our keyframed version.
+    # Step 2: export the comp we just added — it's the highest index.
+    # Even if a stale comp survived the clear pass, the newest one is
+    # the one Resolve auto-linked to the source.
+    base_idx = clip.GetFusionCompCount()
     base_path = str(out_dir / "_fusion_base.comp")
-    if not clip.ExportFusionComp(base_path, 1):
-        print(f"FAIL: ExportFusionComp(\"{base_path}\", 1) returned False", file=sys.stderr)
+    print(f"  comp count: {base_idx}, names: {clip.GetFusionCompNameList()}")
+    if not clip.ExportFusionComp(base_path, base_idx):
+        print(f"FAIL: ExportFusionComp(\"{base_path}\", {base_idx}) returned False",
+              file=sys.stderr)
         return 8
-    base_text = Path(base_path).read_text()
+    # Fusion's exported comps are UTF-8, not the platform default.
+    base_text = Path(base_path).read_text(encoding="utf-8")
     print(f"  exported base comp ({len(base_text)} chars) → {base_path}")
 
     # Step 3: build extra tools (or static fallback) and patch into base.
@@ -362,12 +373,12 @@ def main() -> int:
 
     patched = patch_comp_text(base_text, extra_tools)
     patched_path = str(out_dir / "_fusion_patched.comp")
-    Path(patched_path).write_text(patched)
+    Path(patched_path).write_text(patched, encoding="utf-8")
     print(f"  patched comp ({len(patched)} chars) → {patched_path}")
     print(f"  clicks: {len(click_events)} keyframed")
 
-    # Step 4: clear the default comp and import the patched one.
-    for name in clip.GetFusionCompNameList():
+    # Step 4: clear all comps (best effort) and import the patched one.
+    for name in list(clip.GetFusionCompNameList()):
         clip.DeleteFusionCompByName(name)
 
     new_comp = clip.ImportFusionComp(patched_path)
@@ -375,6 +386,13 @@ def main() -> int:
         print(f"\nFAIL: ImportFusionComp returned None.")
         print(f"      Inspect {patched_path} — Fusion couldn't parse it.")
         return 10
+
+    # Make sure the freshly-imported comp is the active one (Resolve may
+    # leave a stale earlier comp loaded if delete didn't fully clear).
+    final_names = clip.GetFusionCompNameList()
+    if final_names:
+        clip.LoadFusionCompByName(final_names[-1])
+    print(f"  final comps on V1: {final_names}")
 
     print(f"\n✓ imported as Fusion comp on V1 clip")
     if not args.static:
