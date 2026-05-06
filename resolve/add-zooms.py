@@ -156,10 +156,13 @@ def main() -> int:
         print("FAIL: AddTool('Transform') returned None", file=sys.stderr)
         return 10
 
-    # Wire MediaIn → Transform → MediaOut. The Fusion API for connecting
-    # tools is: dest.Input.ConnectTo(source.Output).
-    xform.Input.ConnectTo(media_in.Output)
-    media_out.Input.ConnectTo(xform.Output)
+    # Wire MediaIn → Transform → MediaOut. The reliable Fusion-Python form
+    # for connecting + setting params is tool.SetInput(name, source_or_value
+    # [, time]). Passing a tool object auto-uses its Output. Without an
+    # existing wire to MediaOut we'd see no transform — that was the bug.
+    xform.SetInput("Input", media_in)
+    media_out.SetInput("Input", xform)
+    print(f"  wired: {media_in.Name} → {xform.Name} → {media_out.Name}")
 
     # Compute keyframe windows + anchor coords per click.
     pre_frames = ms_to_frames(args.pre_ms, fps)
@@ -170,11 +173,10 @@ def main() -> int:
     print(f"\napplying zoom keyframes for {len(click_events)} clicks…")
 
     # Anchor a baseline keyframe at clip frame 0 so the ramp-in has
-    # a starting point.
-    xform.Size[0] = 1.0
-    # Fusion Center is a Point — pass as table {1: x, 2: y}. Origin is
-    # bottom-left, normalised 0..1.
-    xform.Center[0] = {1: 0.5, 2: 0.5}
+    # a starting point. The first SetInput at a time index promotes the
+    # parameter to animated; subsequent calls add keyframes.
+    xform.SetInput("Size", 1.0, 0)
+    xform.SetInput("Center", [0.5, 0.5], 0)
 
     success = 0
     for ev in click_events:
@@ -194,15 +196,15 @@ def main() -> int:
         cy_norm = 1.0 - (bbox_cy / frame_h)
 
         try:
-            xform.Size[f_pre] = 1.0
-            xform.Size[f_peak_in] = float(args.zoom)
-            xform.Size[f_peak_out] = float(args.zoom)
-            xform.Size[f_post] = 1.0
+            xform.SetInput("Size", 1.0, f_pre)
+            xform.SetInput("Size", float(args.zoom), f_peak_in)
+            xform.SetInput("Size", float(args.zoom), f_peak_out)
+            xform.SetInput("Size", 1.0, f_post)
 
-            xform.Center[f_pre] = {1: 0.5, 2: 0.5}
-            xform.Center[f_peak_in] = {1: cx_norm, 2: cy_norm}
-            xform.Center[f_peak_out] = {1: cx_norm, 2: cy_norm}
-            xform.Center[f_post] = {1: 0.5, 2: 0.5}
+            xform.SetInput("Center", [0.5, 0.5], f_pre)
+            xform.SetInput("Center", [cx_norm, cy_norm], f_peak_in)
+            xform.SetInput("Center", [cx_norm, cy_norm], f_peak_out)
+            xform.SetInput("Center", [0.5, 0.5], f_post)
             success += 1
             label = (ev.get("cue") or ev.get("label") or "click")[:36]
             print(f"  ✓ {label:36s}  frame {click_frame:5d}  "
