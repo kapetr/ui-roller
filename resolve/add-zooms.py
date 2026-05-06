@@ -60,28 +60,10 @@ def ms_to_frames(ms: float, fps: float) -> int:
     return int(round(ms / 1000.0 * fps))
 
 
-def fmt_keyframe_size(frame: int, value: float) -> str:
-    return (
-        f"            [{frame}] = {{ {value:.4f}, "
-        f"RH = {{ 1, 0 }}, LH = {{ -1, 0 }}, "
-        f"Flags = {{ Linear = true, LockedY = true }} }},"
-    )
-
-
-def fmt_keyframe_path(frame: int, t_progress: float, x: float, y: float) -> str:
-    """XYPath keyframe format. The leading number is the path's normalized
-    time progress (0..1 across the whole path)."""
-    return (
-        f"            [{frame}] = {{ {t_progress:.6f}, "
-        f"X = {x:.4f}, Y = {y:.4f}, "
-        f"RX = 0.0, RY = 0.0, LX = 0.0, LY = 0.0, "
-        f"Flags = {{ Linear = true, LinearAcceleration = true }} }},"
-    )
-
-
 def patch_comp_text(
     base_text: str,
     extra_tools: str,
+    saver_source: str = "Transform1",
 ) -> str:
     """Insert extra_tools (Tool definitions) just before the closing brace
     of the Tools = { ... } block in base_text, and re-route the Saver
@@ -136,12 +118,13 @@ def patch_comp_text(
     sep = "," if not head.endswith(",") else ""
     patched = head + sep + "\n" + extra_tools + "\n\t\t" + base_text[close_idx:]
 
-    # Re-route the Saver (MediaOut1) to consume Transform1's output. Match
-    # the Saver-block SourceOp specifically so we don't disturb the Loader's
+    # Re-route the Saver (MediaOut1) to consume the *last* Transform's
+    # output (TransformN, where N == number of clicks). Matches the
+    # Saver-block SourceOp specifically so we don't disturb the Loader's
     # `MediaIn1 = Loader` self-name elsewhere.
     patched, n_replacements = re.subn(
         r"(MediaOut1\s*=\s*Saver\s*\{[\s\S]*?SourceOp\s*=\s*\")MediaIn1(\")",
-        r"\1Transform1\2",
+        rf"\1{saver_source}\2",
         patched,
         count=1,
     )
@@ -161,7 +144,49 @@ def build_extra_tools(
     pre_ms: int,
     hold_ms: int,
     post_ms: int,
-) -> str:
+) -> tuple[str, str]:
+    """Build a chain of Transform tools, one per click. Each Transform has:
+      - Static Center at the click's bbox centre.
+      - Size animated via BezierSpline modifier (1.0 outside the click
+        window, ramps to `zoom` at peak, holds, ramps back to 1.0).
+
+    Returns (tools_text, last_tool_name). last_tool_name is what MediaOut1
+    should consume — the patch caller re-routes the Saver to it.
+
+    Why a chain instead of one animated Center: Resolve's Fusion expects
+    Center animation to come from a PolyPath (path waypoints + a
+    BezierSpline displacement driving traversal). For multiple clicks
+    with distinct bbox centres that's fiddly to encode. A chain of
+    static-Center / animated-Size Transforms is equivalent visually
+    (each Transform is a no-op outside its click window because
+    Size = 1.0 there) and uses the well-understood BezierSpline format
+    Fusion saves natively.
+    """
+    return _build_extra_tools_impl(
+        click_events,
+        fps=fps,
+        capture_scale=capture_scale,
+        frame_w=frame_w,
+        frame_h=frame_h,
+        zoom=zoom,
+        pre_ms=pre_ms,
+        hold_ms=hold_ms,
+        post_ms=post_ms,
+    )
+
+
+def _build_extra_tools_impl(
+    click_events: list[dict],
+    *,
+    fps: float,
+    capture_scale: float,
+    frame_w: int,
+    frame_h: int,
+    zoom: float,
+    pre_ms: int,
+    hold_ms: int,
+    post_ms: int,
+) -> tuple[str, str]:
     """Build a Fusion .comp file text with MediaIn → Transform (animated
     Size + Center via BezierSpline + XYPath) → MediaOut.
     """
@@ -169,12 +194,10 @@ def build_extra_tools(
     hold_frames = ms_to_frames(hold_ms, fps)
     post_frames = ms_to_frames(post_ms, fps)
 
-    # (frame, value) for Size; (frame, x, y) for Center.
-    size_kf: list[tuple[int, float]] = [(0, 1.0)]
-    center_kf: list[tuple[int, float, float]] = [(0, 0.5, 0.5)]
-    last_frame = 0
+    blocks: list[str] = []
+    prev_source = "MediaIn1"
 
-    for ev in click_events:
+    for i, ev in enumerate(click_events, start=1):
         click_frame = ms_to_frames(ev.get("t", 0), fps)
         f_pre = max(0, click_frame - pre_frames)
         f_peak_in = click_frame
@@ -182,7 +205,8 @@ def build_extra_tools(
         f_post = f_peak_out + post_frames
 
         bbox = ev.get("bbox") or {
-            "x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0,
+            "x": ev.get("x", 0), "y": ev.get("y", 0),
+            "width": 0, "height": 0,
         }
         bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
         bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
@@ -190,56 +214,47 @@ def build_extra_tools(
         # Fusion's Y is bottom-up; screencast Y is top-down.
         cy_norm = 1.0 - (bbox_cy / frame_h)
 
-        size_kf += [
-            (f_pre, 1.0),
-            (f_peak_in, zoom),
-            (f_peak_out, zoom),
-            (f_post, 1.0),
-        ]
-        center_kf += [
-            (f_pre, 0.5, 0.5),
-            (f_peak_in, cx_norm, cy_norm),
-            (f_peak_out, cx_norm, cy_norm),
-            (f_post, 0.5, 0.5),
-        ]
-        last_frame = max(last_frame, f_post)
+        tool_name = f"Transform{i}"
+        size_name = f"{tool_name}Size"
+        x_pos = 220 + (i - 1) * 60
 
-    # Path progress is 0..1 evenly across keyframes.
-    n_path = max(1, len(center_kf) - 1)
-    path_lines = "\n".join(
-        fmt_keyframe_path(f, i / n_path, x, y)
-        for i, (f, x, y) in enumerate(center_kf)
-    )
-    size_lines = "\n".join(fmt_keyframe_size(f, v) for f, v in size_kf)
-    end_frame = last_frame + 30
+        # Match the format Resolve writes for animated BezierSpline modifiers:
+        #   [frame] = { value, Flags = { Linear = true } }
+        # No handles, no LockedY — Linear flag is enough for straight-line
+        # interpolation between keyframes, and Fusion derives handles itself.
+        kf = (
+            f"\t\t\t\t[{f_pre}] = {{ 1.0, Flags = {{ Linear = true }} }},\n"
+            f"\t\t\t\t[{f_peak_in}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }},\n"
+            f"\t\t\t\t[{f_peak_out}] = {{ {zoom:.4f}, Flags = {{ Linear = true }} }},\n"
+            f"\t\t\t\t[{f_post}] = {{ 1.0, Flags = {{ Linear = true }} }}"
+        )
 
-    # Returns just the new tools (SizeAnim, CenterAnim, Transform1) as
-    # comp-file text, ready to be patched into the auto-generated comp.
-    return f"""        SizeAnim = BezierSpline {{
-            SplineColor = {{ Red = 252, Green = 102, Blue = 153 }},
-            CtrlWZoom = false,
-            NameSet = true,
-            KeyFrames = {{
-{size_lines}
-            }},
-        }},
-        CenterAnim = XYPath {{
-            DrawMode = "ModifyOnly",
-            CtrlWZoom = false,
-            NameSet = true,
-            KeyFrames = {{
-{path_lines}
-            }},
-        }},
-        Transform1 = Transform {{
-            CtrlWZoom = false,
-            Inputs = {{
-                Center = Input {{ SourceOp = "CenterAnim", Source = "Position" }},
-                Size = Input {{ SourceOp = "SizeAnim", Source = "Value" }},
-                Input = Input {{ SourceOp = "MediaIn1", Source = "Output" }},
-            }},
-            ViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
-        }},"""
+        spline_block = (
+            f"\t\t{size_name} = BezierSpline {{\n"
+            f"\t\t\tSplineColor = {{ Red = 225, Green = 0, Blue = 225 }},\n"
+            f"\t\t\tCtrlWZoom = false,\n"
+            f"\t\t\tNameSet = true,\n"
+            f"\t\t\tKeyFrames = {{\n{kf}\n\t\t\t}}\n"
+            f"\t\t}}"
+        )
+
+        transform_block = (
+            f"\t\t{tool_name} = Transform {{\n"
+            f"\t\t\tCtrlWZoom = false,\n"
+            f"\t\t\tInputs = {{\n"
+            f"\t\t\t\tCenter = Input {{ Value = {{ {cx_norm:.4f}, {cy_norm:.4f} }}, }},\n"
+            f"\t\t\t\tSize = Input {{ SourceOp = \"{size_name}\", Source = \"Value\", }},\n"
+            f"\t\t\t\tInput = Input {{ SourceOp = \"{prev_source}\", Source = \"Output\", }}\n"
+            f"\t\t\t}},\n"
+            f"\t\t\tViewInfo = OperatorInfo {{ Pos = {{ {x_pos}, 0 }} }},\n"
+            f"\t\t}}"
+        )
+
+        blocks.append(spline_block)
+        blocks.append(transform_block)
+        prev_source = tool_name
+
+    return ",\n".join(blocks), prev_source
 
 
 def main() -> int:
@@ -348,19 +363,20 @@ def main() -> int:
         bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
         cx = bbox_cx / frame_w
         cy = 1.0 - (bbox_cy / frame_h)
-        extra_tools = f"""        Transform1 = Transform {{
-            Inputs = {{
-                Center = Input {{ Value = {{ {cx:.4f}, {cy:.4f} }} }},
-                Size = Input {{ Value = {args.zoom:.4f} }},
-                Input = Input {{ SourceOp = "MediaIn1", Source = "Output" }},
-            }},
-            ViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
-        }},"""
+        extra_tools = f"""\t\tTransform1 = Transform {{
+\t\t\tInputs = {{
+\t\t\t\tCenter = Input {{ Value = {{ {cx:.4f}, {cy:.4f} }}, }},
+\t\t\t\tSize = Input {{ Value = {args.zoom:.4f}, }},
+\t\t\t\tInput = Input {{ SourceOp = "MediaIn1", Source = "Output" }}
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
+\t\t}}"""
+        last_tool = "Transform1"
     else:
         if not click_events:
             print("no click events to keyframe — done.")
             return 0
-        extra_tools = build_extra_tools(
+        extra_tools, last_tool = build_extra_tools(
             click_events,
             fps=fps,
             capture_scale=capture_scale,
@@ -372,7 +388,7 @@ def main() -> int:
             post_ms=args.post_ms,
         )
 
-    patched = patch_comp_text(base_text, extra_tools)
+    patched = patch_comp_text(base_text, extra_tools, saver_source=last_tool)
     patched_path = str(out_dir / "_fusion_patched.comp")
     Path(patched_path).write_text(patched, encoding="utf-8")
     print(f"  patched comp ({len(patched)} chars) → {patched_path}")
