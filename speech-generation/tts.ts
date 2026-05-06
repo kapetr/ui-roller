@@ -11,6 +11,7 @@
 // Output: <out-base>.mp3 next to wherever you ran the command from.
 
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
@@ -18,6 +19,11 @@ const DEFAULT_VOICE = "2zGvynULFssveGrcP8hi"; // Jackson
 const DEFAULT_MODEL = "eleven_multilingual_v2";
 const DEFAULT_FORMAT = "mp3_44100_128";
 const CUE_RE = /\{\{[a-z0-9_\-]+\}\}/gi;
+
+// Load .env from cwd if present. Real shell env still wins — values in
+// .env only fill missing keys.
+const envPath = path.resolve(".env");
+if (existsSync(envPath)) process.loadEnvFile(envPath);
 
 async function main() {
   const [scriptPath, voiceArg, outArg] = process.argv.slice(2);
