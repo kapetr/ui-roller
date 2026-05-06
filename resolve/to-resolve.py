@@ -63,12 +63,30 @@ def import_media(media_pool, paths: list[Path]) -> list:
     return items
 
 
-def append_to_track(media_pool, mp_item, track_index: int) -> Optional[object]:
-    """Append a single clip to a specific video track at the timeline start."""
+def append_to_track(
+    media_pool,
+    mp_item,
+    track_index: int,
+    record_frame: int,
+    media_type: int = 1,
+) -> Optional[object]:
+    """Append a clip to a specific track at an absolute timeline frame.
+
+    media_type: 1 = video, 2 = audio. AppendToTimeline without recordFrame
+    snaps to the playhead, which after the first call lands at the END of
+    the just-placed clip — that's why earlier runs put V2/V3/A1 after
+    V1's tail. Setting recordFrame explicitly forces placement at the
+    timeline start.
+    """
     if mp_item is None:
         return None
     timeline_items = media_pool.AppendToTimeline(
-        [{"mediaPoolItem": mp_item, "trackIndex": track_index}]
+        [{
+            "mediaPoolItem": mp_item,
+            "trackIndex": track_index,
+            "mediaType": media_type,
+            "recordFrame": record_frame,
+        }]
     )
     return timeline_items[0] if timeline_items else None
 
@@ -77,8 +95,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scene", nargs="?", default=None, help="scene name (informational)")
     parser.add_argument("--out-dir", default="out", help="recorder output directory")
-    parser.add_argument("--audio", default=None, help="optional narration audio file")
+    parser.add_argument("--audio", default=None, help="optional narration audio file (overrides events.audio.path)")
     parser.add_argument("--timeline-name", default=None, help="timeline name")
+    parser.add_argument(
+        "--no-compound",
+        action="store_true",
+        help="Skip merging V1/V2/V3 into a single compound clip. Layers stay "
+             "independent on V1/V2/V3 — you'll need to copy any transform "
+             "(zoom, position) across all three by hand to keep them synced.",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
@@ -98,13 +123,25 @@ def main() -> int:
     raw_path = out_dir / "raw.mov"
     cursor_path = out_dir / "cursor.mov"
     click_path = out_dir / "click.mov"
-    audio_path = Path(args.audio).resolve() if args.audio else None
+
+    # Audio path priority: --audio arg > events.audio.path > none.
+    # Audio offset comes from events.audio.startedAtMs (ms when audio
+    # playback started during the recording, in logger time) so the
+    # clip lands at the right point on A1.
+    log_audio = events.get("audio") or {}
+    audio_path = (
+        Path(args.audio).resolve() if args.audio
+        else (Path(log_audio["path"]).resolve() if log_audio.get("path") else None)
+    )
+    audio_offset_ms = float(log_audio.get("startedAtMs") or 0)
 
     print("inputs:")
     print(f"  raw:    {raw_path}")
     print(f"  cursor: {cursor_path}")
     print(f"  click:  {click_path}")
     print(f"  audio:  {audio_path or '(none)'}")
+    if audio_path and audio_offset_ms > 0:
+        print(f"          starts at +{audio_offset_ms:.0f} ms on the timeline")
     print(f"  resolution: {width}×{height}, fps: 30")
 
     try:
@@ -162,26 +199,49 @@ def main() -> int:
     project.SetCurrentTimeline(timeline)
 
     # Resolve creates a new timeline with one video and one audio track by
-    # default. Add tracks for cursor, click, and (if audio) extra audio.
+    # default. Add tracks for cursor and click overlays.
     timeline.AddTrack("video")  # V2 — cursor
     timeline.AddTrack("video")  # V3 — click
-    # AppendToTimeline places clips on the LAST track of each type by default
-    # unless trackIndex is specified. Specify explicitly.
 
-    print("placing clips:")
-    raw_ti = append_to_track(media_pool, raw_item, 1)
-    cursor_ti = append_to_track(media_pool, cursor_item, 2)
-    click_ti = append_to_track(media_pool, click_item, 3)
+    timeline_start = timeline.GetStartFrame()
+    audio_record_frame = timeline_start + ms_to_frames(audio_offset_ms, 30)
+
+    print("placing clips at timeline start:")
+    raw_ti = append_to_track(media_pool, raw_item, 1, timeline_start, media_type=1)
+    cursor_ti = append_to_track(media_pool, cursor_item, 2, timeline_start, media_type=1)
+    click_ti = append_to_track(media_pool, click_item, 3, timeline_start, media_type=1)
     if audio_item is not None:
-        append_to_track(media_pool, audio_item, 1)  # A1
+        append_to_track(media_pool, audio_item, 1, audio_record_frame, media_type=2)
+        if audio_offset_ms > 0:
+            print(f"  audio placed at +{audio_offset_ms:.0f} ms")
 
     placed = sum(1 for ti in (raw_ti, cursor_ti, click_ti) if ti is not None)
     print(f"  {placed}/3 video tracks placed")
 
+    # Wrap V1/V2/V3 into a compound clip so any transform (zoom, position,
+    # scale-into-background) applied on the parent timeline moves all
+    # three layers in lockstep. To edit a layer independently (hide
+    # cursor for a beat, retime click rings, etc.) double-click the
+    # compound to dive in. Skipped with --no-compound.
+    compound_inputs = [ti for ti in (raw_ti, cursor_ti, click_ti) if ti is not None]
+    if not args.no_compound and len(compound_inputs) >= 2:
+        print("\nmerging V1/V2/V3 into a compound clip…")
+        compound = media_pool.CreateCompoundClip(
+            compound_inputs,
+            {
+                "startTimecode": "01:00:00:00",
+                "name": f"{timeline_name} · stack",
+            },
+        )
+        if compound:
+            print("  ✓ compound created — transform on V1 now syncs all layers")
+        else:
+            print("  WARN: CreateCompoundClip returned None — layers stay separate")
+
     # Drop a marker per click event. AddMarker(frameId, color, name, note,
-    # duration) — frameId is in frames from the timeline start.
+    # duration) — frameId is in frames from the timeline start. Markers
+    # are timeline-level so they survive the compound clip operation.
     print("\nadding click markers:")
-    timeline_start = timeline.GetStartFrame()
     marker_count = 0
     for ev in events.get("events", []):
         if ev.get("kind") != "click":
@@ -211,9 +271,14 @@ def main() -> int:
             print(f"  WARN: failed to add marker at frame {offset} ({name})")
     print(f"  {marker_count} markers added")
 
-    print("\ndone — switch to Resolve. Add zoom/pan keyframes around the")
-    print("blue click markers by hand for now; script-driven keyframes are")
-    print("deferred to v1.")
+    print("\ndone — switch to Resolve.")
+    print("  • Transform / scale the V1 compound to fit your background frame.")
+    print("    Cursor and click rings follow automatically.")
+    print("  • Add zoom/pan keyframes around the blue click markers in the")
+    print("    Inspector. Each marker note carries the click's frame-pixel")
+    print("    position + bbox — anchor the zoom on those coordinates.")
+    print("  • Double-click the compound clip to dive in if you need to")
+    print("    edit cursor or click overlay independently.")
     return 0
 
 
