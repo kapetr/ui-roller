@@ -10,6 +10,11 @@ export type Frame = {
 
 export type Screencast = {
   stop: () => Promise<Frame[]>;
+  // Resolves with Date.now() at the moment the first screencast frame
+  // arrives in Node. Use this to align the logger clock with the video
+  // clock — Logger starts at construction (before browser launch + first
+  // navigate + first paint) so its zero is offset from the video's zero.
+  firstFrame: Promise<number>;
 };
 
 export type ScreencastOptions = {
@@ -33,6 +38,9 @@ export async function startScreencast(
   let firstTs: number | null = null;
   let stopped = false;
 
+  let resolveFirstFrame!: (wallMs: number) => void;
+  const firstFrame = new Promise<number>((r) => (resolveFirstFrame = r));
+
   const ext = opts.format === "png" ? "png" : "jpg";
 
   cdp.on("Page.screencastFrame", (params) => {
@@ -40,7 +48,10 @@ export async function startScreencast(
     const { data, sessionId, metadata } = params;
     const ts = metadata.timestamp;
     if (typeof ts !== "number") return;
-    if (firstTs === null) firstTs = ts;
+    if (firstTs === null) {
+      firstTs = ts;
+      resolveFirstFrame(Date.now());
+    }
 
     const index = frames.length;
     const path = join(
@@ -65,6 +76,7 @@ export async function startScreencast(
   });
 
   return {
+    firstFrame,
     async stop() {
       stopped = true;
       try {

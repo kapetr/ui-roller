@@ -1,8 +1,9 @@
-// Cubic-bezier easing. Default curve is the iOS "expensive feel" curve
-// (0.32, 0.72, 0, 1) — same as Clueso/Screen Studio. The default cubic-out
-// looks amateur; this is the single biggest "feel" lever in the pipeline.
+// Cubic-bezier easing. Pick the move curve carefully — it's the single
+// biggest "feel" lever in the pipeline. See config.compositor.cursor.easeBezier
+// for the move-curve coefficients used at runtime.
 
 export type Easing = (u: number) => number;
+export type BezierTuple = readonly [number, number, number, number];
 
 export function cubicBezier(
   p1x: number,
@@ -41,5 +42,11 @@ export function cubicBezier(
   };
 }
 
-export const easeMove = cubicBezier(0.32, 0.72, 0, 1);
+export function bezierFromTuple(t: BezierTuple): Easing {
+  return cubicBezier(t[0], t[1], t[2], t[3]);
+}
+
+// Zoom keyframes still use the iOS-style ease-out (settle into the zoomed
+// frame); the cursor's move curve is pulled from config so it can be tuned
+// without code changes.
 export const easeZoom = cubicBezier(0.32, 0.72, 0, 1);

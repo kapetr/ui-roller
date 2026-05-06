@@ -1,16 +1,12 @@
 import type { Event, EventLog } from "../shared/events.ts";
-import { easeMove, type Easing } from "./easing.ts";
+import { bezierFromTuple, type Easing } from "./easing.ts";
+import { config } from "../shared/config.ts";
+
+const defaultEase: Easing = bezierFromTuple(config.compositor.cursor.easeBezier);
 
 export type Sample = { t: number; x: number; y: number };
 
-// `eager` anchors are travel-starters: the cursor doesn't hold after them,
-// it begins easing immediately to the next anchor and finishes at the next
-// anchor's timestamp. The recorder emits these via `move` events at the
-// instant it starts driving page.mouse — that way the gap between a move
-// and the following click is the *real* travel duration (including
-// IPC-induced overrun of the configured travelMs), keeping the visible
-// cursor and the underlying page mouse in lockstep.
-type Anchor = { t: number; x: number; y: number; eager: boolean };
+type Anchor = { t: number; x: number; y: number };
 
 // Events that anchor the cursor to a specific viewport position.
 function isAnchor(e: Event): e is Extract<Event, { kind: "click" | "move" }> {
@@ -46,10 +42,10 @@ export function buildCursorPath(
   log: EventLog,
   opts: PathOptions,
 ): CursorPath {
-  const ease = opts.ease ?? easeMove;
+  const ease = opts.ease ?? defaultEase;
   const anchors: Anchor[] = log.events
     .filter(isAnchor)
-    .map((e) => ({ t: e.t, x: e.x, y: e.y, eager: e.kind === "move" }));
+    .map((e) => ({ t: e.t, x: e.x, y: e.y }));
 
   const totalFrames = Math.max(1, Math.ceil((opts.durationMs / 1000) * opts.fps));
   const samples: Sample[] = [];
@@ -64,8 +60,8 @@ export function buildCursorPath(
 
   const preroll: Anchor =
     opts.preroll === "first"
-      ? { t: 0, x: anchors[0]!.x, y: anchors[0]!.y, eager: false }
-      : { t: 0, x: -1e6, y: -1e6, eager: false };
+      ? { t: 0, x: anchors[0]!.x, y: anchors[0]!.y }
+      : { t: 0, x: -1e6, y: -1e6 };
 
   // Insert a synthetic anchor at t=0 if the first real anchor is later.
   const all: Anchor[] =
@@ -86,12 +82,7 @@ export function buildCursorPath(
     }
 
     const gap = next.t - prev.t;
-    // Eager anchor (move event) → travel the *full* gap so the visible
-    // cursor stays in lockstep with the underlying page mouse, even when
-    // IPC overhead made the actual travel longer than the configured
-    // travelMs. Otherwise (click→click without a move marker) keep the
-    // hold-then-ease behaviour so long page-load gaps don't crawl.
-    const travel = prev.eager ? gap : Math.min(opts.travelMs, gap);
+    const travel = Math.min(opts.travelMs, gap);
     const travelStart = next.t - travel;
 
     if (t < travelStart) {

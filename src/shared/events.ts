@@ -2,6 +2,10 @@ export type EventBase = {
   t: number;
   label?: string;
   target?: string;
+  // Optional cue name from the speech timings file. If present, the
+  // recorder waited until that cue's at_ms before firing this event
+  // (or fired late if UI wasn't ready in time — see actualTimings).
+  cue?: string;
 };
 
 export type ClickEvent = EventBase & {
@@ -26,6 +30,8 @@ export type TypeEvent = EventBase & {
 export type WaitEvent = EventBase & {
   kind: "wait";
   durationMs: number;
+  // For semantic waits (waitFor), what we were waiting on.
+  reason?: string;
 };
 
 export type NavigateEvent = EventBase & {
@@ -48,4 +54,33 @@ export type EventLog = {
   // at this density when --force-device-scale-factor is set).
   captureScale: number;
   events: Event[];
+};
+
+// Speech-timing schema (TTS pipeline output). Mirrors what tts_edge.py
+// and tts_kokoro.py emit so we can read it directly.
+export type SpeechCue = { name: string; at_ms: number };
+export type SpeechTimings = {
+  voice?: string;
+  rate?: string;
+  duration_ms?: number;
+  text?: string;
+  words?: { text: string; start_ms: number; end_ms: number }[];
+  cues: SpeechCue[];
+};
+
+// Per-cue drift report — consumed by the audio assembler to decide
+// whether to pad silence around variable-latency segments.
+export type CueDrift = {
+  name: string;
+  intendedAtMs: number;
+  actualAtMs: number;
+  // Positive = action fired late (UI was slower than narration). Negative
+  // shouldn't happen — we always sleep up to the cue.
+  driftMs: number;
+};
+
+export type ActualTimings = {
+  startedAt: string;
+  durationMs: number;
+  cues: CueDrift[];
 };

@@ -35,10 +35,16 @@ export const config = {
       // Sprite size as a fraction of the LAYOUT (CSS) viewport width.
       // 0.018 ≈ 35 CSS px @ 1920 → 70 frame px @ captureScale=2.
       spriteCssFraction: 0.018,
-      // Time spent travelling between consecutive anchors. The cursor holds
-      // the previous position until (next.t - travelMs), then eases. Bigger
-      // = the cursor starts moving earlier and glides instead of darting.
-      travelMs: 800,
+      // Cubic-bezier coefficients for the move curve. (0,0,1,1) = linear —
+      // constant velocity, no ease in or out. Feels mechanical compared to
+      // softened curves, but plays back fast and predictable. Tune later if
+      // the linear feel reads as robotic on the final video.
+      easeBezier: [0, 0, 1, 1] as readonly [number, number, number, number],
+      // Time spent travelling between consecutive anchors (target wall-clock).
+      // Page-busy beats can stretch this beyond the configured value because
+      // Chromium serialises mouse events behind hover repaints — the
+      // compositor uses the actual gap, so the visible cursor stays in sync.
+      travelMs: 400,
       // Curve the path on long moves so it feels human, not laser-guided.
       // 0 = always linear. 0.06 = subtle perpendicular bow; 0.12 = obvious arc.
       curveAmount: 0.06,
