@@ -65,6 +65,13 @@ def main() -> int:
         help="if the V1 clip already has a Fusion comp, delete it first "
              "(otherwise we error out instead of clobbering custom work)",
     )
+    parser.add_argument(
+        "--static",
+        action="store_true",
+        help="DIAGNOSTIC: apply a single static zoom around the first "
+             "click's bbox, no keyframes. Use this to verify the Fusion "
+             "wiring works at all before worrying about per-click pulses.",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
@@ -158,11 +165,23 @@ def main() -> int:
 
     # Wire MediaIn → Transform → MediaOut. The reliable Fusion-Python form
     # for connecting + setting params is tool.SetInput(name, source_or_value
-    # [, time]). Passing a tool object auto-uses its Output. Without an
-    # existing wire to MediaOut we'd see no transform — that was the bug.
+    # [, time]). Passing a tool object auto-uses its Output.
     xform.SetInput("Input", media_in)
     media_out.SetInput("Input", xform)
     print(f"  wired: {media_in.Name} → {xform.Name} → {media_out.Name}")
+
+    # Read back to verify connections actually took.
+    in_src = xform.GetInput("Input")
+    out_src = media_out.GetInput("Input")
+    print(f"  xform.Input source: {in_src!r}")
+    print(f"  MediaOut.Input source: {out_src!r}")
+    if in_src is None or out_src is None:
+        print(
+            "\nWARN: connections don't look applied. The Transform is in the\n"
+            "      flow graph but not wired up — that's why no zoom shows.\n"
+            "      Try opening the comp in Fusion and dragging arrows manually,\n"
+            "      then re-run with --static to test if zoom values stick."
+        )
 
     # Compute keyframe windows + anchor coords per click.
     pre_frames = ms_to_frames(args.pre_ms, fps)
@@ -170,6 +189,41 @@ def main() -> int:
     post_frames = ms_to_frames(args.post_ms, fps)
 
     click_events = [e for e in events.get("events", []) if e.get("kind") == "click"]
+
+    if args.static:
+        if not click_events:
+            print("FAIL: --static needs at least one click event in events.json",
+                  file=sys.stderr)
+            return 11
+        ev = click_events[0]
+        bbox = ev.get("bbox") or {"x": ev.get("x", 0), "y": ev.get("y", 0), "width": 0, "height": 0}
+        bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
+        bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
+        cx_norm = bbox_cx / frame_w
+        cy_norm = 1.0 - (bbox_cy / frame_h)
+
+        print(f"\n--static: applying single zoom anchored on first click")
+        print(f"  click label:  {ev.get('label', '<unknown>')}")
+        print(f"  bbox center:  ({bbox_cx:.0f}, {bbox_cy:.0f}) source px")
+        print(f"  Center input: ({cx_norm:.3f}, {cy_norm:.3f}) Fusion-normalised")
+        print(f"  Size input:   {args.zoom}")
+
+        xform.SetInput("Size", float(args.zoom))
+        xform.SetInput("Center", [cx_norm, cy_norm])
+
+        # Read back.
+        size_now = xform.GetInput("Size")
+        center_now = xform.GetInput("Center")
+        print(f"\n  read-back:")
+        print(f"    Size   = {size_now!r}")
+        print(f"    Center = {center_now!r}")
+        print(
+            "\nIf you see a static zoom in the Resolve viewer, the wiring +\n"
+            "static SetInput work. Re-run without --static for the keyframed\n"
+            "per-click pulses."
+        )
+        return 0
+
     print(f"\napplying zoom keyframes for {len(click_events)} clicks…")
 
     # Anchor a baseline keyframe at clip frame 0 so the ramp-in has
