@@ -79,7 +79,77 @@ def fmt_keyframe_path(frame: int, t_progress: float, x: float, y: float) -> str:
     )
 
 
-def build_comp_text(
+def patch_comp_text(
+    base_text: str,
+    extra_tools: str,
+) -> str:
+    """Insert extra_tools (one or more Tool definitions, comma-terminated)
+    just before the closing brace of the Tools = ordered() {} block in
+    base_text, and re-route MediaOut1's Input to come from Transform1
+    instead of MediaIn1.
+
+    base_text is what TimelineItem.ExportFusionComp wrote — the auto-
+    generated comp that Resolve created on AddFusionComp() with MediaIn1
+    properly linked to the clip's source. Keeping that MediaIn1 verbatim
+    preserves the source linkage; if we generate a comp from scratch the
+    playhead gets stuck on one black frame.
+    """
+    # Insert tools before the final "}" that closes Tools = ordered() {...}.
+    # Find the last "}" before the comp-level closing "}" — robustly: the
+    # Tools block is typically the only `ordered() {` block.
+    open_idx = base_text.find("Tools = ordered() {")
+    if open_idx < 0:
+        # Some Resolve versions use lowercase 'tools' or different format.
+        open_idx = base_text.find("Tools = ordered() {")
+    if open_idx < 0:
+        raise RuntimeError("couldn't find Tools = ordered() {} block in exported comp")
+    # Walk forward from open_idx counting braces to find the matching close.
+    depth = 0
+    i = open_idx
+    in_string = False
+    string_ch = ""
+    while i < len(base_text):
+        ch = base_text[i]
+        if in_string:
+            if ch == string_ch and base_text[i - 1] != "\\":
+                in_string = False
+        elif ch in '"\'':
+            in_string = True
+            string_ch = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    close_idx = i
+    if close_idx >= len(base_text):
+        raise RuntimeError("couldn't find end of Tools block")
+
+    patched = base_text[:close_idx] + "\n" + extra_tools + "\n        " + base_text[close_idx:]
+
+    # Re-route MediaOut1.Input to read from Transform1 instead of MediaIn1.
+    # Replace the first occurrence inside the MediaOut1 block.
+    mo_start = patched.find("MediaOut1 = MediaOut")
+    if mo_start < 0:
+        raise RuntimeError("couldn't find MediaOut1 in exported comp")
+    # Find the next Input = ... { ... } after mo_start
+    inp = patched.find("Input = Input", mo_start)
+    if inp < 0:
+        raise RuntimeError("couldn't find MediaOut1.Input")
+    end = patched.find("}", inp)
+    if end < 0:
+        raise RuntimeError("couldn't find end of MediaOut1.Input")
+    patched = (
+        patched[:inp]
+        + 'Input = Input { SourceOp = "Transform1", Source = "Output" }'
+        + patched[end + 1:]
+    )
+    return patched
+
+
+def build_extra_tools(
     click_events: list[dict],
     *,
     fps: float,
@@ -142,17 +212,9 @@ def build_comp_text(
     size_lines = "\n".join(fmt_keyframe_size(f, v) for f, v in size_kf)
     end_frame = last_frame + 30
 
-    return f"""Composition {{
-    CurrentTime = 0,
-    RenderRange = {{ 0, {end_frame} }},
-    GlobalRange = {{ 0, {end_frame} }},
-    CustomControls = ordered() {{}},
-    Tools = ordered() {{
-        MediaIn1 = MediaIn {{
-            CtrlWZoom = false,
-            ViewInfo = OperatorInfo {{ Pos = {{ 0, 0 }} }},
-        }},
-        SizeAnim = BezierSpline {{
+    # Returns just the new tools (SizeAnim, CenterAnim, Transform1) as
+    # comp-file text, ready to be patched into the auto-generated comp.
+    return f"""        SizeAnim = BezierSpline {{
             SplineColor = {{ Red = 252, Green = 102, Blue = 153 }},
             CtrlWZoom = false,
             NameSet = true,
@@ -176,16 +238,7 @@ def build_comp_text(
                 Input = Input {{ SourceOp = "MediaIn1", Source = "Output" }},
             }},
             ViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
-        }},
-        MediaOut1 = MediaOut {{
-            Inputs = {{
-                Input = Input {{ SourceOp = "Transform1", Source = "Output" }},
-            }},
-            ViewInfo = OperatorInfo {{ Pos = {{ 440, 0 }} }},
-        }},
-    }}
-}}
-"""
+        }},"""
 
 
 def main() -> int:
@@ -249,51 +302,53 @@ def main() -> int:
 
     # Clear existing Fusion comps first (so we're idempotent).
     if args.clear or clip.GetFusionCompCount() > 0:
-        n = clip.GetFusionCompCount()
         for name in clip.GetFusionCompNameList():
             ok = clip.DeleteFusionCompByName(name)
             print(f"  deleted Fusion comp: {name} → {ok}")
 
     click_events = [e for e in events.get("events", []) if e.get("kind") == "click"]
 
+    # Step 1: let Resolve create a default Fusion comp on the clip. This
+    # auto-links MediaIn1 to the clip's source (the magic that breaks
+    # when we import a from-scratch comp).
+    print("\nadding default Fusion comp (Resolve auto-links MediaIn1 to source)…")
+    if clip.AddFusionComp() is None:
+        print("FAIL: AddFusionComp returned None", file=sys.stderr)
+        return 7
+
+    # Step 2: export it to a temp file so we can patch the auto-linked
+    # MediaIn1 verbatim into our keyframed version.
+    base_path = str(out_dir / "_fusion_base.comp")
+    if not clip.ExportFusionComp(base_path, 1):
+        print(f"FAIL: ExportFusionComp(\"{base_path}\", 1) returned False", file=sys.stderr)
+        return 8
+    base_text = Path(base_path).read_text()
+    print(f"  exported base comp ({len(base_text)} chars) → {base_path}")
+
+    # Step 3: build extra tools (or static fallback) and patch into base.
     if args.static:
-        # Sanity test: build a comp with NO animation, just Transform set
-        # to a fixed zoom around the first click. We've confirmed this
-        # path produces visible zoom; the keyframed path is what's been
-        # broken.
         if not click_events:
             print("FAIL: --static needs at least one click event", file=sys.stderr)
-            return 7
+            return 9
         ev = click_events[0]
         bbox = ev.get("bbox") or {"x": ev["x"], "y": ev["y"], "width": 0, "height": 0}
         bbox_cx = (bbox["x"] + bbox["width"] / 2) * capture_scale
         bbox_cy = (bbox["y"] + bbox["height"] / 2) * capture_scale
         cx = bbox_cx / frame_w
         cy = 1.0 - (bbox_cy / frame_h)
-        comp_text = f"""Composition {{
-    CurrentTime = 0,
-    Tools = ordered() {{
-        MediaIn1 = MediaIn {{ ViewInfo = OperatorInfo {{ Pos = {{ 0, 0 }} }} }},
-        Transform1 = Transform {{
+        extra_tools = f"""        Transform1 = Transform {{
             Inputs = {{
                 Center = Input {{ Value = {{ {cx:.4f}, {cy:.4f} }} }},
                 Size = Input {{ Value = {args.zoom:.4f} }},
                 Input = Input {{ SourceOp = "MediaIn1", Source = "Output" }},
             }},
             ViewInfo = OperatorInfo {{ Pos = {{ 220, 0 }} }},
-        }},
-        MediaOut1 = MediaOut {{
-            Inputs = {{ Input = Input {{ SourceOp = "Transform1", Source = "Output" }} }},
-            ViewInfo = OperatorInfo {{ Pos = {{ 440, 0 }} }},
-        }},
-    }}
-}}
-"""
+        }},"""
     else:
         if not click_events:
             print("no click events to keyframe — done.")
             return 0
-        comp_text = build_comp_text(
+        extra_tools = build_extra_tools(
             click_events,
             fps=fps,
             capture_scale=capture_scale,
@@ -305,21 +360,20 @@ def main() -> int:
             post_ms=args.post_ms,
         )
 
-    # Write comp file to a temp path and import it onto the clip.
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".comp", delete=False, dir=str(out_dir)
-    ) as f:
-        f.write(comp_text)
-        comp_path = f.name
+    patched = patch_comp_text(base_text, extra_tools)
+    patched_path = str(out_dir / "_fusion_patched.comp")
+    Path(patched_path).write_text(patched)
+    print(f"  patched comp ({len(patched)} chars) → {patched_path}")
+    print(f"  clicks: {len(click_events)} keyframed")
 
-    print(f"\ncomp file: {comp_path}")
-    print(f"  size:    {len(comp_text)} chars")
-    print(f"  clicks:  {len(click_events)} keyframed")
+    # Step 4: clear the default comp and import the patched one.
+    for name in clip.GetFusionCompNameList():
+        clip.DeleteFusionCompByName(name)
 
-    new_comp = clip.ImportFusionComp(comp_path)
+    new_comp = clip.ImportFusionComp(patched_path)
     if new_comp is None:
         print(f"\nFAIL: ImportFusionComp returned None.")
-        print(f"      Inspect {comp_path} — Fusion couldn't parse it.")
+        print(f"      Inspect {patched_path} — Fusion couldn't parse it.")
         return 10
 
     print(f"\n✓ imported as Fusion comp on V1 clip")
