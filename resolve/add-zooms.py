@@ -275,6 +275,11 @@ def main() -> int:
                         help="delete any existing Fusion comp on V1 first")
     parser.add_argument("--static", action="store_true",
                         help="DIAGNOSTIC: static zoom anchored on first click, no keyframes")
+    parser.add_argument("--basic", action="store_true",
+                        help="DIAGNOSTIC: simplest possible animation — one Transform, "
+                             "three keyframes (1.0 → 1.6 → 1.0 across the whole clip), "
+                             "static centre at frame middle. Format copies exactly what "
+                             "Resolve writes when you keyframe a Transform manually.")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
@@ -360,7 +365,63 @@ def main() -> int:
     print(f"  exported base comp ({len(base_text)} chars) → {base_path}")
 
     # Step 3: build extra tools (or static fallback) and patch into base.
-    if args.static:
+    if args.basic:
+        # Simplest possible test: ONE Transform, three Size keyframes
+        # spanning the whole clip (1.0 → 1.6 → 1.0), static Centre at
+        # (0.5, 0.5). Format matches Resolve's saved comp byte-for-byte
+        # — including LH/RH handle coordinates Fusion uses for its
+        # 1/3-distance bezier handles even with the Linear flag.
+        if not click_events:
+            f_end = 1000
+        else:
+            last_t_ms = max(e.get("t", 0) for e in events.get("events", []))
+            f_end = ms_to_frames(last_t_ms, fps)
+        f_mid = f_end // 2
+
+        def kf_line(t: int, v: float,
+                    t_prev: int | None = None, v_prev: float | None = None,
+                    t_next: int | None = None, v_next: float | None = None) -> str:
+            parts = [f"{v:.4f}"]
+            if t_prev is not None and v_prev is not None:
+                lh_t = t - (t - t_prev) / 3
+                lh_v = v + (v_prev - v) / 3
+                parts.append(f"LH = {{ {lh_t:.6f}, {lh_v:.6f} }}")
+            if t_next is not None and v_next is not None:
+                rh_t = t + (t_next - t) / 3
+                rh_v = v + (v_next - v) / 3
+                parts.append(f"RH = {{ {rh_t:.6f}, {rh_v:.6f} }}")
+            parts.append("Flags = { Linear = true }")
+            return f"\t\t\t\t[{t}] = {{ {', '.join(parts)} }}"
+
+        kf_text = ",\n".join([
+            kf_line(0, 1.0, t_next=f_mid, v_next=1.6),
+            kf_line(f_mid, 1.6, t_prev=0, v_prev=1.0, t_next=f_end, v_next=1.0),
+            kf_line(f_end, 1.0, t_prev=f_mid, v_prev=1.6),
+        ])
+
+        extra_tools = (
+            "\t\tTransform1Size = BezierSpline {\n"
+            "\t\t\tSplineColor = { Red = 225, Green = 0, Blue = 225 },\n"
+            "\t\t\tCtrlWZoom = false,\n"
+            "\t\t\tNameSet = true,\n"
+            "\t\t\tKeyFrames = {\n"
+            f"{kf_text}\n"
+            "\t\t\t}\n"
+            "\t\t},\n"
+            "\t\tTransform1 = Transform {\n"
+            "\t\t\tCtrlWZoom = false,\n"
+            "\t\t\tInputs = {\n"
+            "\t\t\t\tCenter = Input { Value = { 0.5, 0.5 }, },\n"
+            '\t\t\t\tSize = Input { SourceOp = "Transform1Size", Source = "Value", },\n'
+            '\t\t\t\tInput = Input { SourceOp = "MediaIn1", Source = "Output", }\n'
+            "\t\t\t},\n"
+            "\t\t\tViewInfo = OperatorInfo { Pos = { 220, 0 } },\n"
+            "\t\t}"
+        )
+        last_tool = "Transform1"
+        print(f"\n--basic: one Transform, 3 Size keyframes "
+              f"[0→1.0, {f_mid}→1.6, {f_end}→1.0]")
+    elif args.static:
         if not click_events:
             print("FAIL: --static needs at least one click event", file=sys.stderr)
             return 9
