@@ -2,101 +2,72 @@
 
 ## Goal
 
-End-to-end Meet DAM video produced by:
+End-to-end product video produced by:
 
-1. Scripted Playwright capture of the DAM UI (or hand-driven for chat
-   segment if deterministic capture proves too constraining).
+1. Hand-driven Playwright capture (you click; the recorder logs every
+   move + click).
 2. Composited cursor + click ring/ripple over the raw screencast.
-3. TTS narration generated separately (already in `speech-generation/`).
-4. Zoom/pan + final timeline polish in DaVinci Resolve.
+3. TTS narration generated at natural pace from a plain script.
+4. Zoom/pan + audio mux + cuts + intro/outro in DaVinci Resolve.
 
 ffmpeg owns the deterministic layer compositing (cursor, click effects).
-Resolve owns cinematic transforms (zoom, pan) and the final mux.
+Resolve owns cinematic transforms, audio mux, cuts, polish.
 
-## Pipeline (target)
+The primary path is **natural-pace audio + human pacing the recording
+to it**. No automatic audio alignment is needed — the human watching
+the script play matches actions to phrases, and any mismatch is fixed
+by a simple Resolve trim.
+
+## Primary workflow
+
+| Step | Command |
+|---|---|
+| 1. Write narration script | Plain text in `speech-generation/<name>_script.txt`. No `{{cue}}` markers needed. |
+| 2. Generate audio | `ELEVENLABS_API_KEY=sk_… pnpm tts speech-generation/<name>_script.txt` |
+| 3. Manual record | Play the audio on headphones (any player). In another shell: `pnpm record-manual <url>`. Click through to match the narration. Close the browser when done. |
+| 4. Cursor + click effects | `pnpm assemble <label>` → produces `out/{cursor.mov, click.mov, final.mp4}`. |
+| 5. Resolve assembly | `python3 resolve/to-resolve.py <label> --audio speech-generation/<name>.mp3` (when Resolve Studio is available). Imports raw/cursor/click + audio onto V1/V2/V3 + A1, drops a marker per click. You add zooms around markers, trim mismatches, intro/outro, render. |
+
+## Pipeline (artifacts)
 
 ```
 recorder        →  raw.mov
-                   cursor.mov            (transparent ProRes 4444)
-                   click.mov             (transparent ProRes 4444)
                    events.json
-                   actual.timings.json   (per-cue drift)
 
-TTS (separate)  →  narration.mp3
-                   speech.timings.json   (cues → audio at_ms)
+compositor      →  cursor.mov            (transparent ProRes 4444)
+                   click.mov             (transparent ProRes 4444)
+                   final.mp4             (raw + cursor + click composited)
+
+TTS (Node)      →  narration.mp3         (natural pace, no timing constraints)
 
 resolve/to-resolve.py
                 →  Resolve project file
                    - V1 raw, V2 cursor, V3 click overlays
                    - A1 narration
                    - Marker per click event (named with label/cue)
-                   - Transform keyframes per click (1.0× → 1.6× zoom,
-                     anchored on bbox)
-                   → hand off for final polish + render
+                   → hand off for zoom keyframes, trim, intro/outro, render
 ```
 
-## Steps
+## Secondary workflows (not used by default)
 
-### 1. Click-effect compositor — TODO
-Mirror the cursor compositor in `src/compositor/click-effects.ts`. Per
-click event, render an expanding ring centred on `bbox` (fall back to
-`(x,y)`) — ~500ms life, fade out. Stream RGBA to ffmpeg, output
-transparent ProRes 4444 → `out/click.mov`. Tunables in config: ring
-colour, stroke width, peak radius, ease.
+### Scripted scene with cue alignment
+For automated re-renders where human pacing isn't an option (e.g., CI
+recordings, multi-language re-renders). The bones for this are already
+shipped:
 
-Useful side-benefit: a click ring on the exact frame the click event
-fired is the visible test that the alignment fix is correct. Click
-landing on the cursor's frame ⇒ alignment good.
+- `actions.click(target, { cue })` — recorder waits until `cue.at_ms`
+  before firing.
+- `actual.timings.json` — drift report per cue.
+- `speech-generation/tts_aligned.py` — generates per-segment audio with
+  silence padding so cue at_ms matches click t exactly. **Experimental**
+  (silence padding can sound unnatural; speed shifts wobble prosody).
+  Don't use for the primary flow.
 
-### 2. ~~Suppress page hover~~ — SKIPPED
-Keeping page hover. Affordance signal matters; some hover-paint lag on
-busy beats is acceptable. Documented in `NOTES.md`.
-
-### 3. Resolve export `resolve/to-resolve.py` — TODO
-DaVinci Resolve Python scripting API. Smallest possible test first
-(connect, print project name) to flush out API quirks. Then:
-
-- Open project (Resolve must be running).
-- Create new timeline at the recording's resolution.
-- Import `raw.mov`, `cursor.mov`, `click.mov`, narration.
-- Place on V1/V2/V3 + A1 starting at 00:00:00:00.
-- For each click event: timeline marker named `label` or `cue`. 
-- For each click event: Transform keyframes on V1 (Zoom + Anchor) —
-  1.0× → 1.6× peak around the click time, anchor on bbox centre,
-  ease curves matching `easeZoom` (we'll start with the same iOS-style
-  cubic-bezier).
-- Save project, hand off for polish.
-
-Risks: Resolve's Python API is documented but finicky; needs the
-right Python interpreter; some operations are async without obvious
-completion signal. Plan extra time.
-
-### 4. Port Meet DAM scene — TODO
-`src/scenes/meet-dam.ts` consuming `speech-generation/meet_dam.timings.json`.
-
-- Login, provider walk, connections walk, settings — scripted with
-  `cue:` per action.
-- Chat segment — ideally configure DAM dev-mode to return a canned/
-  scripted response so timing is deterministic. Falls back to step 5
-  if the canned approach hits a wall.
-
-End-to-end run, then iterate Resolve easing until it feels right.
-
-### 5. Hand-driven fallback `pnpm record-manual <scene>` — TODO if needed
-Non-headless browser; user clicks through the UI naturally. Playwright
-tracks every action via page binding (`page.exposeBinding`):
-
-- `mousemove` (sampled at ~30 Hz to keep payload small)
-- `click` (full event, with target element bbox)
-- `keydown` (for type events; reconstructed into `type` events)
-
-Times are recorded as the user actually performs them — no scripted
-timing assumptions. Same `events.json` schema as scripted runs, so the
-compositor and Resolve export are unchanged. Speech timings can be
-reconciled against the actual play timeline (cues drift to wherever
-the user clicked).
-
-This is the path for chat-heavy beats that aren't worth scripting.
+### Meet DAM scene scaffold
+`src/scenes/meet-dam.ts` walks the script's beats with `cue:` per
+action. Currently TODO-blocked on selector verification against the
+live DAM cluster. Useful when scripted-scene workflow becomes
+necessary; orthogonal to the primary hand-driven flow.
 
 ## Progress
 
@@ -105,24 +76,22 @@ This is the path for chat-heavy beats that aren't worth scripting.
 - [x] HD layout @ 2× DPR capture (`--force-device-scale-factor=2`)
 - [x] Cursor / page-mouse sync via delay-then-teleport
 - [x] Logger / video clock alignment (`Screencast.firstFrame` → `Logger.alignTo`)
-- [x] Speech cue plumbing (`actions.click(target, { cue })`, `actual.timings.json`)
-- [x] Semantic `waitFor({ visible | text | networkIdle | predicate })`
 - [x] Click-effect compositor (expanding ring, antialiased, alpha-blended)
 - [x] Click-effect timing tied to page-response paint (`effectT`)
+- [x] Hand-driven recorder (`pnpm record-manual <url>` — page-side mousemove + click hooks, browser-close stops)
+- [x] TTS Node script (`pnpm tts <script.txt>` — ElevenLabs, natural pace, strips cue markers)
 - [x] Resolve export skeleton (probe.py + to-resolve.py — import V1/V2/V3 + A1, click markers)
-- [ ] Resolve transform keyframes (deferred to v1 — script-driven keyframes are limited; user adds zoom/pan around blue markers in editor)
-- [x] Meet DAM scene scaffold (`src/scenes/meet-dam.ts`) — every script beat wired to a cue, deterministic beats fully scripted, agent-creation/chat beats marked TODO with selector slots awaiting UI verification
-- [ ] **Drive Meet DAM end-to-end** — fill in TODO selectors against the live cluster, decide canned-vs-hand-driven for the chat segment
-- [x] Hand-driven recorder (`pnpm record-manual <url>` — non-headless browser, page-side mousemove + click hooks via exposeBinding, in-page stop button)
+- [x] Speech cue plumbing (`actions.click(target, { cue })`, `actual.timings.json`) — for scripted-scene secondary path
+- [x] Semantic `waitFor({ visible | text | networkIdle | predicate })` — for scripted-scene secondary path
+- [x] Audio aligner (`speech-generation/tts_aligned.py`) — experimental, secondary path only
+- [x] Meet DAM scene scaffold — TODO-blocked on live cluster selector verification
+- [ ] **Resolve Studio** — pending license; primary blocker for end-to-end test
+- [ ] Resolve transform keyframes via API (deferred — user adds zoom by hand around markers; clean automation requires Fusion comps and isn't worth it for v0)
 
 ## Open questions
 
-- DAM dev-mode canned chat response — does DAM expose a way to get a
-  deterministic response stream for demo purposes? If not, hand-driven
-  fallback becomes mandatory rather than optional.
 - Resolve target version: confirm Python scripting API matches the
-  installed Resolve. Free vs Studio may differ for Fusion macros.
-- Audio assembly strategy when chat segment is hand-driven: split
-  narration into pre-chat / post-chat tracks and pad silence to absorb
-  the variable chat duration. (Today's `actual.timings.json` already
-  emits the drift the audio assembler needs.)
+  installed Resolve once Studio is available.
+- For longer videos with chat-heavy beats: split narration into
+  segments around the unpredictable beats so the audio file boundaries
+  give natural cut points in Resolve.
