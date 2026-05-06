@@ -113,7 +113,7 @@ This is the path for chat-heavy beats that aren't worth scripting.
 - [ ] Resolve transform keyframes (deferred to v1 — script-driven keyframes are limited; user adds zoom/pan around blue markers in editor)
 - [x] Meet DAM scene scaffold (`src/scenes/meet-dam.ts`) — every script beat wired to a cue, deterministic beats fully scripted, agent-creation/chat beats marked TODO with selector slots awaiting UI verification
 - [ ] **Drive Meet DAM end-to-end** — fill in TODO selectors against the live cluster, decide canned-vs-hand-driven for the chat segment
-- [ ] Hand-driven fallback (if Meet DAM chat needs it)
+- [x] Hand-driven recorder (`pnpm record-manual <url>` — non-headless browser, page-side mousemove + click hooks via exposeBinding, in-page stop button)
 
 ## Open questions
 

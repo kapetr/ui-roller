@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "record": "tsx src/recorder/index.ts",
+    "record-manual": "tsx src/recorder/manual.ts",
     "assemble": "tsx src/compositor/index.ts",
     "typecheck": "tsc --noEmit"
   },
