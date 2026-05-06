@@ -60,7 +60,7 @@ DaVinci Resolve Python scripting API. Smallest possible test first
 - Create new timeline at the recording's resolution.
 - Import `raw.mov`, `cursor.mov`, `click.mov`, narration.
 - Place on V1/V2/V3 + A1 starting at 00:00:00:00.
-- For each click event: timeline marker named `label` or `cue`.
+- For each click event: timeline marker named `label` or `cue`. 
 - For each click event: Transform keyframes on V1 (Zoom + Anchor) —
   1.0× → 1.6× peak around the click time, anchor on bbox centre,
   ease curves matching `easeZoom` (we'll start with the same iOS-style
@@ -108,8 +108,10 @@ This is the path for chat-heavy beats that aren't worth scripting.
 - [x] Speech cue plumbing (`actions.click(target, { cue })`, `actual.timings.json`)
 - [x] Semantic `waitFor({ visible | text | networkIdle | predicate })`
 - [x] Click-effect compositor (expanding ring, antialiased, alpha-blended)
-- [ ] **Resolve export** ← next
-- [ ] Meet DAM scene
+- [x] Click-effect timing tied to page-response paint (`effectT`)
+- [x] Resolve export skeleton (probe.py + to-resolve.py — import V1/V2/V3 + A1, click markers)
+- [ ] Resolve transform keyframes (deferred to v1 — script-driven keyframes are limited; user adds zoom/pan around blue markers in editor)
+- [ ] **Meet DAM scene** ← next
 - [ ] Hand-driven fallback (if Meet DAM needs it)
 
 ## Open questions
