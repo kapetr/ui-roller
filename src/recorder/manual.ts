@@ -1,6 +1,7 @@
 // Hand-driven recorder.
 //
-//   pnpm record-manual <start-url>
+//   pnpm record-manual <start-url> [--audio path/to/narration.mp3]
+//                                  [--audio-delay-ms 5000]
 //
 // Spins up a non-headless browser at the configured viewport, injects a
 // page-side hook that posts every mousemove (sampled at ~30 Hz) and
@@ -9,9 +10,17 @@
 // recorder. The compositor + Resolve export pipelines downstream don't
 // know which mode produced the recording.
 //
-// Stop the recording by returning to this terminal and pressing Enter
-// (or by closing the browser window).
+// --audio:           macOS-only (afplay). Plays the file through the
+//                    system audio so the operator can pace clicks to
+//                    narration. The audio is NOT captured into the
+//                    recording — events.json records the start offset
+//                    so Resolve can place the clip at the right moment.
+// --audio-delay-ms:  delay between first screencast frame and audio
+//                    start, ms. Default 5000 (5 s prep window).
+//
+// Stop the recording by closing the browser window.
 
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium, type BrowserContext } from "playwright";
@@ -32,14 +41,35 @@ type IncomingClick = {
 type IncomingStop = { kind: "stop" };
 type Incoming = IncomingMove | IncomingClick | IncomingStop;
 
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let startUrl: string | undefined;
+  let audioPath: string | undefined;
+  let audioDelayMs = 5000;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--audio") {
+      audioPath = args[++i];
+    } else if (a === "--audio-delay-ms") {
+      audioDelayMs = parseInt(args[++i] ?? "", 10);
+    } else if (!a.startsWith("--") && !startUrl) {
+      startUrl = a;
+    }
+  }
+  return { startUrl, audioPath, audioDelayMs };
+}
+
 async function main() {
-  const startUrl = process.argv[2];
+  const { startUrl, audioPath, audioDelayMs } = parseArgs();
   if (!startUrl) {
-    console.error("usage: pnpm record-manual <start-url>");
+    console.error("usage: pnpm record-manual <start-url> [--audio path] [--audio-delay-ms 5000]");
     console.error("e.g.   pnpm record-manual http://humr.localhost:4444/");
+    console.error("e.g.   pnpm record-manual http://humr.localhost:4444/ --audio speech-generation/humr_test_speech.mp3");
     process.exit(1);
     return;
   }
+  const audioAbs = audioPath ? resolve(audioPath) : undefined;
 
   const outDir = resolve(process.cwd(), config.outDir);
   const framesDir = resolve(outDir, ".frames");
@@ -163,10 +193,36 @@ async function main() {
     everyNthFrame: config.recording.everyNthFrame,
   });
 
+  // Audio playback bookkeeping. afplay is macOS-built-in; on other
+  // platforms swap or skip — caller can always run the audio externally.
+  const audioState: { proc: ChildProcess | null; timer: NodeJS.Timeout | null } = {
+    proc: null,
+    timer: null,
+  };
+
   screencast.firstFrame
     .then((wallMs) => {
       const offset = logger.alignTo(wallMs);
       console.log(`  aligned logger to first frame (-${offset} ms)`);
+
+      if (audioAbs) {
+        console.log(`  audio scheduled in ${audioDelayMs} ms: ${audioAbs}`);
+        audioState.timer = setTimeout(() => {
+          const startedAtMs = logger.now();
+          console.log(`▶ playing audio (logger t=${startedAtMs} ms)`);
+          const proc = spawn("afplay", [audioAbs], { stdio: "ignore" });
+          audioState.proc = proc;
+          proc.on("close", () => {
+            console.log("  audio finished");
+            audioState.proc = null;
+          });
+          proc.on("error", (err) => {
+            console.error(`  audio error: ${err.message}`);
+            audioState.proc = null;
+          });
+          logger.setAudio(audioAbs, startedAtMs);
+        }, audioDelayMs);
+      }
     })
     .catch(() => {});
 
@@ -176,14 +232,23 @@ async function main() {
   console.log("");
   console.log("──────────────────────────────────────────────────");
   console.log("  RECORDING. Drive the browser through your scene.");
-  console.log("  Hold for ~1 s after your last click, then close");
-  console.log("  the browser window (Cmd+W, or red ✕) to stop.");
+  if (audioAbs) {
+    console.log(`  Narration plays in ~${audioDelayMs / 1000}s — pace your`);
+    console.log("  clicks to it. Hold for ~1 s after your last click,");
+  } else {
+    console.log("  Hold for ~1 s after your last click,");
+  }
+  console.log("  then close the browser window (Cmd+W or red ✕).");
   console.log("──────────────────────────────────────────────────");
   console.log("");
 
   await stopPromise;
 
   console.log("\n▶ stopping…");
+  if (audioState.timer) clearTimeout(audioState.timer);
+  if (audioState.proc && !audioState.proc.killed) {
+    try { audioState.proc.kill(); } catch { /* ignore */ }
+  }
   const frames = await screencast.stop();
   if (browser.isConnected()) await browser.close().catch(() => {});
   await logger.write(eventsPath, actualTimingsPath);

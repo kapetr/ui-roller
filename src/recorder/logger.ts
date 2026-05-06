@@ -15,6 +15,7 @@ export class Logger {
   private readonly startedAtIso = new Date().toISOString();
   // Indexed cue lookup. Empty when no timings file is loaded.
   private readonly cueAtMs: Map<string, number>;
+  private audio: { path: string; startedAtMs: number } | null = null;
 
   constructor(
     private readonly viewport: { width: number; height: number },
@@ -58,12 +59,17 @@ export class Logger {
     this.events.push(event);
   }
 
+  setAudio(path: string, startedAtMs: number): void {
+    this.audio = { path, startedAtMs };
+  }
+
   async write(eventsPath: string, actualTimingsPath?: string): Promise<void> {
     const log: EventLog = {
       startedAt: this.startedAtIso,
       viewport: this.viewport,
       captureScale: this.captureScale,
       events: this.events,
+      audio: this.audio ?? undefined,
     };
     await mkdir(dirname(eventsPath), { recursive: true });
     await writeFile(eventsPath, JSON.stringify(log, null, 2));

@@ -15,7 +15,10 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
-const DEFAULT_VOICE = "2zGvynULFssveGrcP8hi"; // Jackson
+// Brian — warm conversational male; one of ElevenLabs' pre-made voices,
+// which means it works on the free tier. Library/shared voices (e.g.
+// Jackson 2zGvynULFssveGrcP8hi) require a paid plan.
+const DEFAULT_VOICE = "nPczCjzI2devNBz1zQrb"; // Brian
 const DEFAULT_MODEL = "eleven_multilingual_v2";
 const DEFAULT_FORMAT = "mp3_44100_128";
 const CUE_RE = /\{\{[a-z0-9_\-]+\}\}/gi;

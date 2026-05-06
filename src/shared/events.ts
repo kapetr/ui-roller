@@ -60,6 +60,15 @@ export type EventLog = {
   // at this density when --force-device-scale-factor is set).
   captureScale: number;
   events: Event[];
+  // If the recorder played a reference audio track during capture (so
+  // the operator could pace clicks to narration), this is the absolute
+  // path and the logger time at which playback started. The Resolve
+  // export uses startedAtMs to drop the audio clip on A1 at the right
+  // offset.
+  audio?: {
+    path: string;
+    startedAtMs: number;
+  };
 };
 
 // Speech-timing schema (TTS pipeline output). Mirrors what tts_edge.py
