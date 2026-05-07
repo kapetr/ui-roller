@@ -146,8 +146,10 @@ def build_extra_tools(
     post_ms: int,
     viewport_w: float,
     viewport_h: float,
-) -> tuple[str, str, list[list[dict]]]:
-    """Wraps _build_extra_tools_impl. See its docstring."""
+    min_duration_ms: int = 2000,
+) -> tuple[str, str, list[list[dict]], list[list[dict]]]:
+    """Wraps _build_extra_tools_impl. Returns
+    (tools_text, last_tool_name, all_groups, zoom_groups)."""
     return _build_extra_tools_impl(
         click_events,
         fps=fps,
@@ -160,6 +162,7 @@ def build_extra_tools(
         post_ms=post_ms,
         viewport_w=viewport_w,
         viewport_h=viewport_h,
+        min_duration_ms=min_duration_ms,
     )
 
 
@@ -201,6 +204,44 @@ def group_clicks(
         else:
             groups[-1].append(ev)
     return groups
+
+
+def filter_zoom_worthy(
+    groups: list[list[dict]],
+    min_duration_ms: int = 2000,
+) -> list[list[dict]]:
+    """Drop groups that don't deserve a zoom:
+
+    - **Single-click groups** — one click is a navigation moment, not
+      sustained activity. Stay zoomed out and let the viewer see the
+      whole page change.
+    - **Short groups** — two clicks 200 ms apart aren't a "region"
+      either; the camera barely arrives before it has to leave.
+
+    Returns groups in original order, with the unworthy ones removed.
+    """
+    kept: list[list[dict]] = []
+    for group in groups:
+        if len(group) < 2:
+            continue
+        span = group[-1].get("t", 0) - group[0].get("t", 0)
+        if span < min_duration_ms:
+            continue
+        kept.append(group)
+    return kept
+
+
+def frame_fill_clamp(cx: float, cy: float, size: float) -> tuple[float, float]:
+    """Clamp a Centre so the zoomed visible region never extends past
+    the source frame. With Size = S, the visible region in source space
+    spans (1/S) × (1/S) around the Centre — so Centre.x must lie in
+    [0.5/S, 1 - 0.5/S], similarly for y. Anything outside that band
+    leaves a black gutter on whichever side fell off-source.
+    """
+    margin = 0.5 / max(size, 1.0)
+    cx_c = max(margin, min(1 - margin, cx))
+    cy_c = max(margin, min(1 - margin, cy))
+    return cx_c, cy_c
 
 
 def _kf_with_handles(
@@ -255,7 +296,8 @@ def _build_extra_tools_impl(
     post_ms: int,
     viewport_w: float,
     viewport_h: float,
-) -> tuple[str, str, list[list[dict]]]:
+    min_duration_ms: int = 2000,
+) -> tuple[str, str, list[list[dict]], list[list[dict]]]:
     """One Transform per zoom region (group of consecutive nearby clicks).
     Each Transform has:
       - Centre animated via PolyPath (two waypoints — frame centre at
@@ -277,12 +319,13 @@ def _build_extra_tools_impl(
     hold_frames = ms_to_frames(hold_ms, fps)
     post_frames = ms_to_frames(post_ms, fps)
 
-    groups = group_clicks(click_events, viewport_w)
+    all_groups = group_clicks(click_events, viewport_w)
+    zoom_groups = filter_zoom_worthy(all_groups, min_duration_ms=min_duration_ms)
 
     blocks: list[str] = []
     prev_source = "MediaIn1"
 
-    for i, group in enumerate(groups, start=1):
+    for i, group in enumerate(zoom_groups, start=1):
         first_click_t = group[0].get("t", 0)
         last_click_t = group[-1].get("t", 0)
         click_frame_first = ms_to_frames(first_click_t, fps)
@@ -302,8 +345,15 @@ def _build_extra_tools_impl(
         n = len(group)
         cx_frame = (sum_x / n) * capture_scale
         cy_frame = (sum_y / n) * capture_scale
-        cx_norm = cx_frame / frame_w
-        cy_norm = 1.0 - (cy_frame / frame_h)
+        cx_norm_raw = cx_frame / frame_w
+        cy_norm_raw = 1.0 - (cy_frame / frame_h)
+
+        # Frame-fill clamp: keep the zoomed visible region inside the
+        # source so we never reveal black behind the clip. Edge-of-screen
+        # clicks (top-bar pills, sidebar) get pulled toward the centre
+        # by exactly the amount needed to keep the source covering the
+        # output frame.
+        cx_norm, cy_norm = frame_fill_clamp(cx_norm_raw, cy_norm_raw, zoom)
 
         # PolyPath waypoint offsets from (0.5, 0.5) — Fusion paths are
         # relative to the path's centre which defaults to frame middle.
@@ -397,16 +447,22 @@ def _build_extra_tools_impl(
         blocks.extend([size_block, disp_block, path_block, transform_block])
         prev_source = tool_name
 
-    return ",\n".join(blocks), prev_source, groups
+    return ",\n".join(blocks), prev_source, all_groups, zoom_groups
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default="out")
-    parser.add_argument("--zoom", type=float, default=1.6, help="peak zoom factor")
-    parser.add_argument("--pre-ms", type=int, default=300, help="ramp-in duration before click (ms)")
-    parser.add_argument("--hold-ms", type=int, default=400, help="hold-at-peak duration after click (ms)")
+    parser.add_argument("--zoom", type=float, default=1.3,
+                        help="peak zoom factor (default 1.3 — safe for any region "
+                             "with surrounding content. Push to 1.5 for tight forms)")
+    parser.add_argument("--pre-ms", type=int, default=300, help="ramp-in duration before first click in region (ms)")
+    parser.add_argument("--hold-ms", type=int, default=400, help="hold-at-peak duration after last click in region (ms)")
     parser.add_argument("--post-ms", type=int, default=400, help="ramp-out duration (ms)")
+    parser.add_argument("--min-duration-ms", type=int, default=2000,
+                        help="region must span at least this many ms across its "
+                             "clicks to deserve a zoom (default 2000). Single-click "
+                             "regions are always skipped.")
     parser.add_argument("--clear", action="store_true",
                         help="delete any existing Fusion comp on V1 first")
     parser.add_argument("--static", action="store_true",
@@ -580,7 +636,7 @@ def main() -> int:
         if not click_events:
             print("no click events to keyframe — done.")
             return 0
-        extra_tools, last_tool, groups = build_extra_tools(
+        extra_tools, last_tool, all_groups, zoom_groups = build_extra_tools(
             click_events,
             fps=fps,
             capture_scale=capture_scale,
@@ -592,11 +648,14 @@ def main() -> int:
             post_ms=args.post_ms,
             viewport_w=viewport["width"],
             viewport_h=viewport["height"],
+            min_duration_ms=args.min_duration_ms,
         )
-        print(f"\ngrouped {len(click_events)} click(s) into {len(groups)} zoom region(s):")
-        for i, group in enumerate(groups, start=1):
+        print(f"\ngrouped {len(click_events)} click(s) into {len(all_groups)} region(s); "
+              f"{len(zoom_groups)} deserve a zoom:")
+        for i, group in enumerate(all_groups, start=1):
             t_first = group[0].get("t", 0) / 1000
             t_last = group[-1].get("t", 0) / 1000
+            span_s = t_last - t_first
             sum_x = sum_y = 0.0
             for ev in group:
                 cx, cy = _bbox_center_css(ev)
@@ -605,9 +664,18 @@ def main() -> int:
             mean_x = sum_x / len(group)
             mean_y = sum_y / len(group)
             labels = ", ".join((ev.get("label", "?") or "?")[:20] for ev in group)
-            print(f"  region {i}: t=[{t_first:.1f}s..{t_last:.1f}s], "
-                  f"mean=({mean_x:.0f},{mean_y:.0f}) css px, {len(group)} click(s)  "
-                  f"[{labels}]")
+            kept = "ZOOM " if group in zoom_groups else "skip "
+            reason = ""
+            if group not in zoom_groups:
+                if len(group) < 2:
+                    reason = " (single click)"
+                elif span_s * 1000 < args.min_duration_ms:
+                    reason = f" (span {span_s:.1f}s < {args.min_duration_ms/1000:.0f}s)"
+            print(f"  {kept} region {i}: t=[{t_first:.1f}..{t_last:.1f}]s "
+                  f"({span_s:.1f}s), mean=({mean_x:.0f},{mean_y:.0f}), "
+                  f"{len(group)} click(s){reason}")
+            if group in zoom_groups:
+                print(f"           clicks: [{labels}]")
 
     patched = patch_comp_text(base_text, extra_tools, saver_source=last_tool)
     patched_path = str(out_dir / "_fusion_patched.comp")

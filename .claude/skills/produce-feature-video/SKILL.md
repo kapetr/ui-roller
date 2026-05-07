@@ -121,41 +121,80 @@ What's left for you to do by hand:
 
 ## Zoom philosophy
 
-The zoom logic in `add-zooms.py` is opinionated. Read this before
-tweaking the parameters:
+The zoom logic in `add-zooms.py` is opinionated and **hard to overdo
+the wrong way**. Less is more. The defaults bake these rules in; read
+them so you know which to override and which to leave alone.
+
+### Hard rules baked into add-zooms.py
+
+1. **Single clicks never get a zoom.** One click is a navigation
+   moment, not sustained activity. Stay zoomed out so the viewer can
+   see the whole page change.
+2. **Click clusters with span < 2 s never get a zoom.** Quick
+   double-clicks aren't a "region"; the camera barely arrives before
+   it has to leave. Override per-run with `--min-duration-ms`.
+3. **The Centre is always clamped to keep the source filling the
+   output frame.** No black gutter behind the clip, ever. Edge-of-
+   screen click clusters (top-bar pills, sidebar) get pulled toward
+   the centre by exactly the amount needed to keep the source covering
+   the output. The visible result: the clicked area sits at the edge
+   of the framed output, not centred — which is what you want.
+
+### Soft rules — intuitions for picking `--zoom`
+
+- **Default 1.3×** — safe for any region with surrounding content
+  that changes (top-bar buttons whose click navigates, sidebar items
+  whose click loads a new view). The zoom highlights *which* button is
+  clicked without cropping the new content that arrives below.
+- **Push to 1.5× for tight forms** — login, single-input dialogs,
+  modals where the form is the only thing that matters and the
+  surrounding chrome is constant.
+- **Don't push past 1.8×** — anything tighter on a 4K recording
+  starts to look pixely.
 
 ### When zoom IN
 
-- A user is **doing something local** — filling a form, reading a panel,
-  clicking through a small set of related buttons.
-- The "thing" is **smaller than ~30% of the viewport width**. Bigger
-  than that and the zoom is annoying — the eye already sees it.
-- The **camera stays put** during the activity. If multiple clicks
-  happen in the same neighbourhood, ONE zoom holds across all of them.
+- A user is **doing something local for at least a few seconds** —
+  filling a form, reading a panel, repeatedly clicking nearby buttons
+  whose effect is in the same place.
+- The "activity" is **smaller than ~30% of the viewport width**.
+  Bigger than that and the zoom is redundant — the eye already
+  sees it.
 
-### When zoom OUT
+### When zoom OUT (= no Transform)
 
 - The **whole page is changing** — navigation, route change,
-  big content swap. Zooming during a transition makes the viewer dizzy.
+  big content swap. Zooming during a transition makes the viewer
+  dizzy. (`add-zooms.py` won't zoom on single clicks, which catches
+  most of these automatically.)
 - The cursor is **moving across the screen** to a new area. Zoom out,
-  travel, zoom in fresh.
+  travel, zoom in fresh in the new region.
 - The narration is **describing the layout overall** ("the get-started
   bar, the sidebar, the main pane"). Wide shots beat tight shots.
+- The user is **passively watching** (agent thinking, file streaming).
 
 ### When NOT to zoom at all
 
-- The **whole UI fits in the frame and matters as a whole**. A get-started
-  bar walk where the bar IS the layout — keep it wide.
+- The **whole UI fits in the frame and matters as a whole**. A get-
+  started bar walk where the bar IS the layout — keep it wide.
 - **Title screens, hero shots, outros**. These belong at 1.0×.
-- The user is **passively watching** (agent thinking, file streaming).
-  No zoom; just hold the wide shot.
+
+### Manual override
+
+After `add-zooms.py` runs, you can still:
+
+- **Delete a Transform in Fusion** to remove a zoom you don't like.
+  The chain works after deletion; you just lose that region's pulse.
+- **Edit Size keyframes by hand** in the Fusion page Inspector to
+  change the peak, ramp, or hold timing for one specific region.
+- **Re-run with `--zoom 1.5`** for the next take if the default 1.3
+  is too subtle for your video.
 
 ### Knobs
 
-`add-zooms.py` defaults: peak zoom 1.6×, ramp-in 300 ms, hold 400 ms,
-ramp-out 400 ms. Tune with `--zoom`, `--pre-ms`, `--hold-ms`,
-`--post-ms`. **Don't push past 1.8×** — anything tighter on a 4K
-recording starts to look pixely.
+`add-zooms.py` defaults: peak zoom 1.3×, ramp-in 300 ms, hold 400 ms,
+ramp-out 400 ms, min-duration 2000 ms. Tune with `--zoom`,
+`--pre-ms`, `--hold-ms`, `--post-ms`, `--min-duration-ms`.
 
 ## Recovery / iteration
 
@@ -164,8 +203,11 @@ recording starts to look pixely.
 | Recorder hangs after browser close | Cmd+W in the browser; SIGINT (Ctrl+C) in the terminal also works |
 | Voice sounds wrong on a phrase | Reword the phrase; TTS pacing depends on punctuation |
 | Click landed off-target | Re-record the take. Don't try to edit the events.json. |
-| Zoom feels too aggressive | `--zoom 1.4 --pre-ms 500` for softer pulses |
-| Two clicks should have been one zoom | They probably were spatially distant; merge them in Resolve manually after `add-zooms.py` runs |
+| Zoom feels too aggressive | Lower `--zoom` (default 1.3); push `--pre-ms` / `--post-ms` higher for softer ramps |
+| A region got skipped you wanted zoomed | Lower `--min-duration-ms`, or add a beat to the recording so the region spans > 2 s |
+| A zoomed region you didn't want | Delete the corresponding `Transform_iSize` / `Transform_iPath` / `Transform_i` triple in the Fusion graph |
+| Black gutter showing behind the clip | Shouldn't happen — the script clamps the Centre. If it does, the patched comp has a stale Centre value; re-run with `--clear` |
+| Two clicks should have been one zoom | They were spatially distant; either merge them by widening `--group-threshold` (TODO param) or hand-edit in Resolve |
 | Resolve `add-zooms.py` produces black | The Fusion comp has a known fragile area around keyframes; run `--basic` to verify the simple path works, then re-run default |
 | Need a different language | Re-run `pnpm tts` with the translated script + matching voice; `events.json` is unchanged so the rest of the pipeline reuses the same take |
 
