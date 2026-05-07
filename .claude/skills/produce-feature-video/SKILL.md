@@ -95,32 +95,40 @@ Ask the user, in one turn:
 
 Write the answer to `runs/<slug>/description.md`. Confirm the slug.
 
-### 2. Explore the app
+### 2. Explore the app — lightweight
 
-Drive the app with the Playwright MCP. **Resize the browser to the
-recorder's target viewport before capturing any coordinates** — read
-`config.viewport` from `src/shared/config.ts` (default 1920×1080) and
-call `browser_resize` to match. Bboxes captured at any other size are
-not transferable to the recording, so any `rect_css` in the proposal
-needs to be in recorder-viewport CSS pixels.
+**Don't capture bboxes here.** The recorder writes click bboxes into
+`events.json` automatically (from the live DOM at click time), so any
+zoom anchored on a click already gets a ground-truth bbox for free —
+without you measuring anything. Pre-exploration's job is the things
+events.json *can't* tell you.
 
-Walk the path the demo will follow. Capture:
+Drive the app with the Playwright MCP just enough to confirm:
 
-- The route(s) involved.
-- The aria-label or id of every element you'd click in a demo of this
-  feature. These become cue names later — copy them verbatim.
-- The viewport regions where the action happens (top bar? left
-  sidebar? main pane?). Note bbox approximations in CSS pixels.
-- Any state that needs setup before recording (clean account, seeded
-  data, a particular page, theme preference, dismissed onboarding,
-  feature flags).
+- **The path exists.** Each click the demo will make is reachable in
+  the order the script needs.
+- **The state requirements** the recording needs: theme, login state,
+  empty/seeded data, dismissed onboarding, feature flags. Anything
+  the user has to set up before pressing record.
+- **The button text / aria-label of each cued click**, so you can
+  name cues consistently with what the binder will see in
+  `events.json`. The binder is tolerant of token mismatches, but
+  wildly wrong cues fail to bind.
+- **Major UI regions** at the level of "left sidebar / top bar / main
+  pane" — enough to write `zoom-intent.md` in plain English. No CSS
+  pixel measurements needed.
+
+Move fast. A handful of `browser_navigate` + `browser_snapshot` calls
+to walk the path is enough; don't grind through every modal looking
+for pixel-perfect coordinates. **Concrete bboxes for non-click zoom
+regions come post-recording from extracted frames** (see step 10).
 
 If the source code is local, read it too — it's often faster than
 clicking around to learn the UI.
 
-Write a tight `runs/<slug>/exploration.md`: route → action → element
-identifier → region note. One paragraph or table per scene the demo
-covers.
+Write a tight `runs/<slug>/exploration.md`: per scene, the route, the
+clicks in order, the labels you'll cue them as, and any state notes.
+One paragraph or table per scene. No bbox tables.
 
 If Playwright isn't available (sandboxed env, auth wall, app not
 running), tell the user explicitly and ask for screenshots + a list of
@@ -146,13 +154,11 @@ The recorder applies these to the start URL's origin via Playwright's
 its first render. Cross-origin navigations (e.g. to a Keycloak login)
 are not affected.
 
-**Apply the same state during your Playwright exploration** so the
-UI you map matches what the recording will capture — set the same
-localStorage entries via `browser_evaluate` after each navigation,
-or pass them through with the same init script if your MCP supports
-it. If you skip this, your bboxes might be from the dark theme and
-the recording from the light theme, and the proposal will look
-correct but render off.
+If your MCP exploration runs in a different theme/state than the
+recording will, that's fine now — bboxes come from the recording
+itself, not from exploration. But still confirm the path works in the
+intended state at least once, so you don't discover at record-time
+that a feature flag hides the button you need.
 
 ### 3. Draft the script
 
@@ -161,13 +167,27 @@ recorder. The script's job is to teach what the feature does and why
 it matters. Pacing for clicks is a side-effect of writing well, not
 the goal.
 
-Save to `runs/<slug>/script.md`. Tips:
+Two principles run the whole show — see `script-writing.md` (next to
+this file) for the full pattern catalogue, examples, and length
+budget:
+
+1. **Sell, don't narrate.** Don't tell the viewer what the screen
+   already shows ("click Save"). Tell them what makes the moment
+   matter ("stored encrypted, scoped per agent, out of your shell
+   history"). The cue marker still belongs at the click; it's
+   invisible to the listener.
+2. **Fill the waits.** Every demo has beats where the UI pauses on
+   something the user didn't trigger — pod startup, model streaming,
+   builds. Write substantive narration for every wait >5s. These are
+   the highest-value seconds in the video; the audio teaches while
+   the UI is still. Warn the user that wait beats may need a manual
+   time-stretch in Resolve, since the real-world wait rarely matches
+   the narration exactly.
+
+Save to `runs/<slug>/script.md`. Tactical bits:
 
 - Write for the ear. Short sentences. Read aloud as you check.
-- One idea per sentence. TTS garbles long clauses.
-- Roughly: each visible UI moment ≈ one short sentence ("now the
-  agents page", "click providers"). The recorder will pace clicks to
-  the narration, so the click rhythm follows the sentence rhythm.
+- One idea per sentence — TTS garbles long clauses.
 - A leading Markdown title (`# Script — …`) is fine for file
   organisation; `pnpm tts` strips Markdown headers before sending to
   the API. **But** if you hand off to the ElevenLabs UI for a premium
@@ -213,16 +233,18 @@ The TTS strips `{{cues}}` automatically; you don't need a separate
 
 Write `runs/<slug>/zoom-intent.md` — plain English, narrative. Where
 the camera should focus and why; where it should stay wide. No JSON,
-no anchor names, no schema. The point is to align with the user on
-the *visual story* before the take, while reasoning is cheap.
+no anchor names, no schema, **no pixel coordinates**. The point is to
+align with the user on the *visual story* before the take, while
+reasoning is cheap. Concrete bboxes come from the recording in step 10.
 
 Two sections, brief:
 
 - **Wide** — beats that should stay zoomed out (page navigations,
   layout-overview narration, opening/closing wide shots).
-- **Zoom-in** — for each, one paragraph: which beat, what region of
-  the UI, rough zoom factor (1.3–1.5 is the safe band), and a
-  sentence on why.
+- **Zoom-in** — for each, one paragraph: which beat (cue name or
+  narration phrase), what region of the UI in plain English ("the
+  Anthropic provider card", "the right-panel tabs"), rough zoom
+  factor (1.3–1.5 is the safe band), and a sentence on why.
 
 Validate with the user. The hard zoom rules below still inform what
 you propose, but enforcement happens later.
@@ -354,16 +376,16 @@ Once they confirm:
 python3 resolve/to-resolve.py --run <slug>
 ```
 
-This creates a timeline with V1 (raw), V2 (cursor), V3 (click) merged
-into a compound clip, A1 (narration) at the right offset, and a marker
-per click event.
+This creates a timeline with **V1 empty** (for the user's background or
+template), V2 (raw), V3 (cursor), V4 (click) merged into a compound on
+V2, A1 (narration) at the right offset, and a marker per click event.
 
 If the script reports the compound wasn't created automatically, tell
 the user:
 
-> *"Select V1+V2+V3 in the Resolve timeline → right-click → New
-> Compound Clip. Tell me when done — both the applier and add-zooms.py
-> need a single compound on V1."*
+> *"Select V2+V3+V4 in the Resolve timeline → right-click → New
+> Compound Clip. Tell me when done — the applier and `add-zooms.py`
+> both look for the compound on V2 by default."*
 
 ### 10. Resolve part 2 — resolve intent into a concrete plan, apply
 
@@ -389,21 +411,48 @@ Map intent to recording:
 - Cued clicks that didn't happen (user tabbed or used keyboard): if
   the region needs that anchor, fall back to a `*_t_ms` time anchor
   picked from where in the audio the beat lives.
-- Time-only regions (no surrounding click) need an explicit `rect_css`
-  to tell the camera where to look.
+- Time-only regions (no surrounding click) need an explicit `rect_css`.
+  Don't guess pixel coordinates — extract a frame from the actual
+  recording and read the bbox off it:
+
+  ```sh
+  ffmpeg -i runs/<slug>/raw.mov -ss <seconds> -frames:v 1 \
+    runs/<slug>/_frame_<seconds>s.png
+  ```
+
+  Then load the frame with the Read tool, identify the region you
+  want, and translate its frame-pixel bbox to CSS pixels by dividing
+  by `captureScale` (default 2× — see `src/shared/config.ts`).
+  Frame-derived bboxes are ground truth; pre-recording exploration
+  estimates were not.
 
 Write `runs/<slug>/zoom-plan.json`. Schema:
 
 ```json
 {
+  "intro": {                          // optional opening transition
+    "start_t_ms": 3500,
+    "slide_in_ms": 1200, "zoom_in_ms": 600, "overlap_ms": 300,
+    "from_x_norm": 1.5,                // off-right; -1.0 for off-left
+    "from_size": 0.7
+  },
+  "outro": {                          // optional closing transition (mirror)
+    "start_t_ms": 43000,
+    "zoom_out_ms": 600, "slide_out_ms": 1200, "overlap_ms": 300,
+    "to_x_norm": -1.0,
+    "to_size": 0.7
+  },
+  "frame_fit": {                      // optional static fit-into-template
+    "size": 0.904, "x_px": 0, "y_px": -31.953
+  },
   "regions": [
     {
       "id": "login-form",
-      "first_click_index": 0,    // 0-indexed into events.json clicks
+      "first_click_index": 0,         // 0-indexed into events.json clicks
       "last_click_index": 1,
-      "first_t_ms": null,         // overrides click_index when present
+      "first_t_ms": null,              // overrides click_index when present
       "last_t_ms": null,
-      "rect_css": null,           // optional; mean of click bboxes otherwise
+      "rect_css": null,                // optional; mean of click bboxes otherwise
       "zoom": 1.5,
       "pre_ms": 300, "hold_ms": 400, "post_ms": 400,
       "rationale": "..."
@@ -412,27 +461,58 @@ Write `runs/<slug>/zoom-plan.json`. Schema:
 }
 ```
 
-`pre_ms`/`hold_ms`/`post_ms` semantics are unchanged (ramp-in /
-trailing dwell after last anchor / ramp-out). The dominant zoom
-duration is still `last_t - first_t` plus ramps; `min_duration_ms`
-isn't a field anymore — you choose the anchors so the camera dwells
-long enough.
+`pre_ms`/`hold_ms`/`post_ms` semantics: ramp-in / trailing dwell after
+last anchor / ramp-out. The dominant zoom duration is `last_t -
+first_t` plus ramps. `min_duration_ms` isn't a field — pick anchors so
+the camera dwells long enough.
 
 **Show the plan to the user**: print each region in plain English
 ("login-form: clicks 0 and 1, zoom 1.5×, pre 300 / hold 400 / post
 400, centred on the form"), plus any clicks you deliberately ignored
 as strays. Confirm before applying.
 
-Once confirmed, run:
+#### Apply in two layers when the user wants a background template
+
+If the user has a background graphic / browser-window template they
+want behind the recording, the workflow splits into two compound
+clips:
+
+1. **Inner compound (raw + cursor + click).** After `to-resolve.py`,
+   ask the user to compound V2+V3+V4 into a single clip on V2. Then
+   apply only `frame_fit` to that compound:
+
+   ```sh
+   python3 resolve/apply-zoom-plan.py --run <slug> --layer inner
+   ```
+
+   This is a static Transform that sits the recording inside the
+   template's viewport area (no animation).
+
+2. **Outer compound (background + framed inner).** Tell the user to
+   drop the background image on V1, then select V1 + V2 → New
+   Compound Clip. The new compound usually lands on V1 (Resolve
+   compounds onto the topmost selected track). Then apply
+   `intro`/`outro`/`regions` to *this* outer compound:
+
+   ```sh
+   python3 resolve/apply-zoom-plan.py --run <slug> --layer outer
+   ```
+
+   The applier reads `frame_fit` from the same plan file and
+   coord-transforms region centres so they still land on the right
+   visual feature inside the framed recording. `intro`/`outro`
+   animate the whole scene (background + framed recording) together.
+
+If there's no background template, run it as one shot:
 
 ```sh
 python3 resolve/apply-zoom-plan.py --run <slug>
 ```
 
-This is a dumb pipe — reads `zoom-plan.json` + `events.json`, emits
-a Fusion comp with Transform/Size keyframes, attaches it to V1.
+`--layer all` is the default; everything goes onto a single compound
+on V2.
 
-After the comp lands:
+After the comp lands (any layer):
 
 - Scrub the timeline. Each region should pulse zoom around its
   anchor times.
