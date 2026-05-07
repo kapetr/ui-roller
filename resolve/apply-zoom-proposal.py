@@ -40,14 +40,16 @@ PROPOSAL FORMAT
     }
 
 CUE → CLICK BINDING
-    Cues in `script.md` are matched to clicks in `events.json` by ORDINAL —
-    Nth cue in the script binds to the Nth click in the recording. As a
-    safety net, each binding is verified by comparing the cue name to
-    the click's `label` (case-insensitive substring); mismatches print a
-    warning but don't abort.
+    For each cue (in script order), the applier scans forward through
+    `events.json`'s click list looking for the next click whose `label`
+    matches the cue (token/substring, case-insensitive). The matched
+    click is consumed; cues that don't find a match remain unbound;
+    clicks that no cue claimed are reported as "skipped extras" and
+    don't block anything.
 
-    If cue count and click count differ, the script aborts and prints
-    the misalignment.
+    A region whose anchor_cues include any unbound cue is skipped
+    (with reason). Cues that don't anchor any region are ignored;
+    they're just narrative markers.
 
 REQUIREMENTS
     - Resolve Studio (Free version doesn't expose scripting).
@@ -93,51 +95,65 @@ def extract_cues(script_md: str) -> list[str]:
     return [m.group(1).lower() for m in CUE_RE.finditer(script_md)]
 
 
+def _norm(s: str) -> str:
+    return re.sub(r"[\s\-_]+", " ", (s or "").lower()).strip()
+
+
+def _label_matches_cue(cue_name: str, ev_label: str) -> bool:
+    """Tolerant match: identical, one is a substring of the other, or any
+    cue token appears in the click label. Cues often use hyphens; click
+    labels (aria-label/id/innerText) often use spaces or camelCase.
+    """
+    cue_norm = _norm(cue_name)
+    ev_norm = _norm(ev_label)
+    if not ev_norm:
+        return False
+    if cue_norm == ev_norm:
+        return True
+    if cue_norm in ev_norm or ev_norm in cue_norm:
+        return True
+    return any(tok and tok in ev_norm for tok in cue_norm.split())
+
+
 def bind_cues_to_clicks(
     cues: list[str], clicks: list[dict],
-) -> tuple[dict[str, dict], list[str]]:
-    """Ordinal 1:1 bind. Returns (cue_name → click_event, warnings).
+) -> tuple[dict[str, dict | None], list[str]]:
+    """Greedy in-order match. For each cue (script order), scan forward
+    through clicks for the next label match; consume on match. Cues
+    without a match return None; clicks no cue claimed are reported as
+    skipped extras.
 
-    Aborts (raises) if counts differ. Substring label-verification is
-    soft — emit a warning and proceed with the ordinal binding.
+    Returns (cue_name → click_event | None, warnings). Never aborts —
+    callers decide what to do with unbound cues (typically: skip any
+    region anchored on them).
     """
-    if len(cues) != len(clicks):
-        raise RuntimeError(
-            f"cue/click count mismatch: {len(cues)} cues in script vs "
-            f"{len(clicks)} clicks in events.json. Re-record, or "
-            f"adjust cues in script.md so they match the take."
-        )
-
-    binding: dict[str, dict] = {}
+    binding: dict[str, dict | None] = {}
     warnings: list[str] = []
-    for cue, ev in zip(cues, clicks):
-        binding[cue] = ev
-        ev_label = (ev.get("label") or "").lower().strip()
-        cue_lc = cue.lower()
-        if not ev_label:
+    last_idx = -1
+    matched_idxs: set[int] = set()
+
+    for cue in cues:
+        found_idx: int | None = None
+        for j in range(last_idx + 1, len(clicks)):
+            if _label_matches_cue(cue, clicks[j].get("label", "")):
+                found_idx = j
+                break
+        if found_idx is None:
+            binding[cue] = None
             warnings.append(
-                f"cue {cue!r}: click has no label — can't verify identity"
+                f"cue {cue!r}: no matching click after index {last_idx + 1}. "
+                f"Any region anchored on this cue will be skipped."
             )
             continue
-        # Tolerant match: identical, or one is a substring of the other,
-        # or any token of one appears in the other (cues often use
-        # hyphens; aria-labels often use spaces).
-        norm = lambda s: re.sub(r"[\s\-_]+", " ", s).strip()
-        cue_norm = norm(cue_lc)
-        ev_norm = norm(ev_label)
-        if (
-            cue_norm == ev_norm
-            or cue_norm in ev_norm
-            or ev_norm in cue_norm
-            or any(tok and tok in ev_norm for tok in cue_norm.split())
-        ):
-            continue
-        warnings.append(
-            f"cue {cue!r} (click #{clicks.index(ev) + 1}): "
-            f"expected element identifier doesn't match click label "
-            f"{ev.get('label')!r}. Wrong element clicked, missed click, "
-            f"or stray double-click?"
-        )
+        binding[cue] = clicks[found_idx]
+        matched_idxs.add(found_idx)
+        last_idx = found_idx
+
+    skipped = [(i, c) for i, c in enumerate(clicks) if i not in matched_idxs]
+    if skipped:
+        labels = ", ".join(f"#{i + 1} {c.get('label')!r}" for i, c in skipped)
+        warnings.append(f"skipped {len(skipped)} unmatched click(s): {labels}")
+
     return binding, warnings
 
 
@@ -176,13 +192,20 @@ def build_region_blocks(
                            "reason": "no anchor_cues"})
             continue
 
-        # Resolve cues → clicks.
+        # Resolve cues → clicks. Anchor cue must exist in the script,
+        # AND must have bound to a click; otherwise skip the region.
         try:
-            anchor_clicks = [binding[c.lower()] for c in anchor_cues]
+            anchor_clicks_maybe = [binding[c.lower()] for c in anchor_cues]
         except KeyError as e:
             status.append({"id": rid, "kept": False,
-                           "reason": f"unknown cue {e.args[0]!r}"})
+                           "reason": f"cue {e.args[0]!r} not found in script.md"})
             continue
+        unbound = [c for c, ev in zip(anchor_cues, anchor_clicks_maybe) if ev is None]
+        if unbound:
+            status.append({"id": rid, "kept": False,
+                           "reason": f"anchor cue(s) {unbound!r} unbound (no matching click)"})
+            continue
+        anchor_clicks = anchor_clicks_maybe  # type: ignore
 
         first_click_t = anchor_clicks[0].get("t", 0)
         last_click_t = anchor_clicks[-1].get("t", 0)
@@ -353,11 +376,16 @@ def main() -> int:
     print(f"cues in script: {len(cues)}")
     print(f"clicks in events.json: {len(clicks)}")
 
-    try:
-        binding, warnings = bind_cues_to_clicks(cues, clicks)
-    except RuntimeError as e:
-        print(f"FAIL: {e}", file=sys.stderr)
-        return 3
+    binding, warnings = bind_cues_to_clicks(cues, clicks)
+    print("\ncue → click bindings:")
+    for cue, ev in binding.items():
+        if ev is None:
+            print(f"  {cue:30s} → (unbound)")
+        else:
+            idx = clicks.index(ev) + 1
+            label = ev.get("label", "?")
+            t_s = ev.get("t", 0) / 1000.0
+            print(f"  {cue:30s} → click #{idx} t={t_s:.2f}s  label={label!r}")
     if warnings:
         print("\nbinding warnings:")
         for w in warnings:

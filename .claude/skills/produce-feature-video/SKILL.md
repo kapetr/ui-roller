@@ -147,14 +147,24 @@ Iterate with the user. Don't move on until they confirm the script.
 
 ### 4. Annotate cues
 
-Re-write `script.md` with `{{cue-name}}` markers at every visible UI
-moment — every click the user will make, plus any non-click beats you
-want to anchor a zoom on (e.g. a result appearing).
+Re-write `script.md` with `{{cue-name}}` markers — **one per click
+the user will actually make**. Don't add cues for visible-but-not-clicked
+moments (e.g. a tab that's already active won't get clicked, so it gets
+no cue). Don't add cues for keyboard-only beats (Tab between fields,
+Enter to submit). The cue→click binder is in-script-order; if you add
+a cue with no corresponding click, the binder leaves it unbound and
+any region anchored on it is skipped.
+
+The binder is also tolerant of *extra* clicks the user makes (stray
+clicks into inputs, accidental icon hits) — it scans forward from the
+last matched click for each cue. So you don't need to micromanage the
+recording; just make sure the cued clicks happen in script order.
 
 **Use the actual `aria-label` or `id` from your exploration as the cue
-name** when one exists. Lowercase, hyphens or underscores. This is the
-single most important rule in this skill: it makes cue→click binding
-self-verifying.
+name** when one exists. Lowercase, hyphens or underscores. The binder
+matches cue → click via tolerant token comparison against each click's
+`label`, so cue `set-up-a-provider` matches a click whose label is
+`"Set up a provider"`.
 
 ```
 First, open the {{providers-tab}}. Paste your key into the
@@ -196,7 +206,12 @@ Field semantics:
 
 - `anchor_cues`: ordered list of cue names that this region covers. The
   region runs from the first anchor's click to the last anchor's click,
-  plus the configured ramps. At least one cue per region.
+  plus the configured ramps. At least one cue per region. Use a
+  **single-cue region with extended `pre_ms`/`hold_ms`** to cover a
+  passive narration beat (no click) adjacent to a cued click — e.g.
+  the camera ramps in over 4 s of "OAuth Token" narration before
+  catching the user's `api-key` click, then holds 2 s while "if you
+  already have one provisioned" finishes.
 - `rect_css`: optional. The interesting region in CSS pixels. If
   omitted, the applier centres on the mean of the anchors' click bbox
   centres (computed from `events.json` after recording).
@@ -321,12 +336,21 @@ to click through plus encoding time — figure on 5 min). The recorder
 prints `events.json` size and click count when it finishes; eyeball
 those before moving on.
 
-After the recorder exits:
+After the recorder exits, inspect `events.json` and report each click's
+`t` and `label` to the user (it's a quick `node -e` one-liner; do it
+even when things look right — the user wants to see what happened).
+Then:
 
-- If click count matches expected cue count → continue to step 8
-  automatically; tell the user "take is in, going to composite".
-- If click count is off, or the recorder errored → tell the user
-  what's wrong and offer to re-run. Don't proceed silently.
+- All cued clicks present in script order → continue to step 8
+  automatically; tell the user something like "take is in, 6 clicks,
+  going to composite".
+- A cue's click is missing (e.g. user tabbed instead of clicked) →
+  drop the cue from the script if the click was never going to happen
+  for stylistic reasons, or re-record. Ask the user.
+- The recorder errored → surface the error, offer to re-run.
+- Extra clicks (user fumbled a bit) → fine, the binder skips them.
+  Mention them in the report so the user knows you saw them, but
+  don't re-record on their account.
 
 ### 8. Composite cursor + clicks
 
