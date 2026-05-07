@@ -1,0 +1,67 @@
+{
+	Tools = ordered() {
+		IntroSlideZoomIn = GroupOperator {
+			CtrlWZoom = false,
+			NameSet = true,
+			Inputs = ordered() {
+				MainInput1 = InstanceInput {
+					SourceOp = "Transform1",
+					Source = "Input",
+					Name = "Source",
+				},
+			},
+			Outputs = {
+				MainOutput1 = InstanceOutput {
+					SourceOp = "Transform1",
+					Source = "Output",
+				}
+			},
+			ViewInfo = GroupInfo { Pos = { 0, 0, } },
+			Tools = ordered() {
+				IntroSize = BezierSpline {
+					SplineColor = { Red = 225, Green = 0, Blue = 225 },
+					CtrlWZoom = false,
+					NameSet = true,
+					KeyFrames = {
+						[0] = { 0.7000, RH = { 9.000000, 0.700000 } },
+						[27] = { 0.7000, LH = { 18.000000, 0.700000 }, RH = { 33.000000, 1.000000 } },
+						[45] = { 1.0000, LH = { 39.000000, 1.000000 } }
+					}
+				},
+				IntroDisplacement = BezierSpline {
+					SplineColor = { Red = 255, Green = 0, Blue = 178 },
+					CtrlWZoom = false,
+					NameSet = true,
+					KeyFrames = {
+						[0] = { 1.0000, RH = { 12.000000, 0.000000 } },
+						[36] = { 0.0000, LH = { 24.000000, 0.000000 } }
+					}
+				},
+				IntroPath = PolyPath {
+					DrawMode = "InsertAndModify",
+					CtrlWZoom = false,
+					Inputs = {
+						Displacement = Input { SourceOp = "IntroDisplacement", Source = "Value", },
+						PolyLine = Input {
+							Value = Polyline {
+								Points = {
+									{ Linear = true, X = 0, Y = 0, RX = 0.333333, RY = 0 },
+									{ Linear = true, X = 1.000000, Y = 0, LX = -0.333333, LY = 0 }
+								}
+							}
+						}
+					}
+				},
+				Transform1 = Transform {
+					CtrlWZoom = false,
+					Inputs = {
+						Center = Input { SourceOp = "IntroPath", Source = "Position", },
+						Size = Input { SourceOp = "IntroSize", Source = "Value", }
+					},
+					ViewInfo = OperatorInfo { Pos = { 220, 0 } },
+				}
+			},
+			ActiveTool = "Transform1"
+		}
+	}
+}
