@@ -18,6 +18,35 @@ USAGE
 
 PLAN FORMAT
     {
+      "intro": {                              # OPTIONAL opening transition
+        "start_t_ms":  3500,                    # when the slide-in begins
+        "slide_in_ms": 1200,                    # phase A: clip slides from
+                                                #   off-screen-right to centre
+        "zoom_in_ms":  600,                     # phase B: clip zooms from
+                                                #   from_size to 1.0
+        "overlap_ms":  300,                     # phase B starts this many ms
+                                                #   before phase A ends, so the
+                                                #   two motions blend
+        "from_x_norm": 1.5,                     # initial Center.x. > 1+0.5*size
+                                                #   puts the clip fully off the
+                                                #   right of output. -1.0 for left.
+        "from_size":   0.7                      # initial Size (zoom factor)
+      },
+      "outro": {                              # OPTIONAL closing transition
+        "start_t_ms":   43000,                  # when the zoom-out begins
+        "zoom_out_ms":  600,                    # phase A: 1.0 → to_size
+        "slide_out_ms": 1200,                   # phase B: centre → to_x_norm
+        "overlap_ms":   300,                    # phase B starts overlap_ms
+                                                #   before phase A ends
+        "to_x_norm":   -1.0,                    # final Center.x (off-left)
+        "to_size":      0.7                     # final Size
+      },
+      "frame_fit": {                          # OPTIONAL static fit-into-frame
+        "size":   0.904,                        # scale, applied at end of chain
+        "x_px":   0,                            # offset in output-timeline
+        "y_px":  -31.953                        #   pixels (Resolve Inspector
+                                                #   convention: +Y = up)
+      },
       "regions": [
         {
           "id":                "login-form",      # display label
@@ -149,6 +178,295 @@ def resolve_region(
     return (first_t, last_t, centre_css)
 
 
+def build_intro_blocks(
+    intro: dict,
+    *,
+    fps: float,
+    add_zooms,
+    x_pos: int = 60,
+) -> tuple[str, str]:
+    """Generate the opening slide-in + zoom-in transition.
+
+    Phase A (slide): Transform's Center.x animates from `from_x_norm`
+    (off-screen) to 0.5 (centred), Size held at `from_size`. Ease-out.
+    Phase B (zoom): Center stays at (0.5, 0.5), Size animates from
+    `from_size` to 1.0. Strong ease-out. Phase B starts `overlap_ms`
+    before phase A ends, so the two motions blend.
+
+    Returns (tools_text, last_tool_name). After the intro, the Transform
+    is at identity (Size=1.0, Center=(0.5, 0.5)) so subsequent zoom
+    regions chain off it as if it were MediaIn1.
+    """
+    start_t_ms = intro.get("start_t_ms", 0)
+    slide_in_ms = intro.get("slide_in_ms", 1200)
+    zoom_in_ms = intro.get("zoom_in_ms", 600)
+    overlap_ms = intro.get("overlap_ms", 300)
+    # Center is the output position where the source-centre lands. Values
+    # > 1 + 0.5*from_size put the clip fully off the right of output.
+    from_x_norm = intro.get("from_x_norm", 1.5)
+    from_size = intro.get("from_size", 0.7)
+
+    f_start = add_zooms.ms_to_frames(start_t_ms, fps)
+    f_slide_end = add_zooms.ms_to_frames(start_t_ms + slide_in_ms, fps)
+    f_zoom_start = add_zooms.ms_to_frames(start_t_ms + slide_in_ms - overlap_ms, fps)
+    f_zoom_end = add_zooms.ms_to_frames(
+        start_t_ms + slide_in_ms - overlap_ms + zoom_in_ms, fps
+    )
+
+    offset_x = from_x_norm - 0.5  # PolyPath waypoint X (relative to frame middle)
+
+    def kf_text(t, v, lh=None, rh=None):
+        parts = [f"{v:.4f}"]
+        if lh is not None:
+            parts.append(f"LH = {{ {lh[0]:.6f}, {lh[1]:.6f} }}")
+        if rh is not None:
+            parts.append(f"RH = {{ {rh[0]:.6f}, {rh[1]:.6f} }}")
+        return f"\t\t\t\t[{t}] = {{ {', '.join(parts)} }}"
+
+    # Displacement: 1.0 at f_start (off-screen) → 0.0 at f_slide_end (centred).
+    # Ease-out: RH at start = end value (steep initial tangent), LH at end
+    # = end value (flat finish).
+    slide_gap = f_slide_end - f_start
+    disp_kfs = [
+        kf_text(f_start, 1.0, rh=(f_start + slide_gap / 3, 0.0)),
+        kf_text(f_slide_end, 0.0, lh=(f_slide_end - slide_gap / 3, 0.0)),
+    ]
+    disp_kf_text = ",\n".join(disp_kfs)
+
+    # Size: hold from_size from f_start to f_zoom_start, ease-out to 1.0
+    # at f_zoom_end. Strong ease-out: handles all flat-or-at-end-value.
+    hold_gap = max(1, f_zoom_start - f_start)
+    zoom_gap = max(1, f_zoom_end - f_zoom_start)
+    size_kfs = [
+        kf_text(f_start, from_size, rh=(f_start + hold_gap / 3, from_size)),
+        kf_text(f_zoom_start, from_size,
+                lh=(f_zoom_start - hold_gap / 3, from_size),
+                rh=(f_zoom_start + zoom_gap / 3, 1.0)),
+        kf_text(f_zoom_end, 1.0, lh=(f_zoom_end - zoom_gap / 3, 1.0)),
+    ]
+    size_kf_text = ",\n".join(size_kfs)
+
+    tool_name = "TransformIntro"
+    size_name = f"{tool_name}Size"
+    path_name = f"{tool_name}Path"
+    disp_name = f"{tool_name}Displacement"
+
+    rx, ry = offset_x / 3.0, 0.0  # PolyPath bezier handle (1/3 along)
+
+    size_block = (
+        f"\t\t{size_name} = BezierSpline {{\n"
+        f"\t\t\tSplineColor = {{ Red = 225, Green = 0, Blue = 225 }},\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tNameSet = true,\n"
+        f"\t\t\tKeyFrames = {{\n{size_kf_text}\n\t\t\t}}\n"
+        f"\t\t}}"
+    )
+    disp_block = (
+        f"\t\t{disp_name} = BezierSpline {{\n"
+        f"\t\t\tSplineColor = {{ Red = 255, Green = 0, Blue = 178 }},\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tNameSet = true,\n"
+        f"\t\t\tKeyFrames = {{\n{disp_kf_text}\n\t\t\t}}\n"
+        f"\t\t}}"
+    )
+    path_block = (
+        f"\t\t{path_name} = PolyPath {{\n"
+        f"\t\t\tDrawMode = \"InsertAndModify\",\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tInputs = {{\n"
+        f"\t\t\t\tDisplacement = Input {{ SourceOp = \"{disp_name}\", Source = \"Value\", }},\n"
+        f"\t\t\t\tPolyLine = Input {{\n"
+        f"\t\t\t\t\tValue = Polyline {{\n"
+        f"\t\t\t\t\t\tPoints = {{\n"
+        f"\t\t\t\t\t\t\t{{ Linear = true, X = 0, Y = 0, RX = {rx:.6f}, RY = {ry:.6f} }},\n"
+        f"\t\t\t\t\t\t\t{{ Linear = true, X = {offset_x:.6f}, Y = 0, LX = {-rx:.6f}, LY = {-ry:.6f} }}\n"
+        f"\t\t\t\t\t\t}}\n"
+        f"\t\t\t\t\t}}\n"
+        f"\t\t\t\t}}\n"
+        f"\t\t\t}}\n"
+        f"\t\t}}"
+    )
+    transform_block = (
+        f"\t\t{tool_name} = Transform {{\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tInputs = {{\n"
+        f"\t\t\t\tCenter = Input {{ SourceOp = \"{path_name}\", Source = \"Position\", }},\n"
+        f"\t\t\t\tSize = Input {{ SourceOp = \"{size_name}\", Source = \"Value\", }},\n"
+        f"\t\t\t\tInput = Input {{ SourceOp = \"MediaIn1\", Source = \"Output\", }}\n"
+        f"\t\t\t}},\n"
+        f"\t\t\tViewInfo = OperatorInfo {{ Pos = {{ {x_pos}, 0 }} }},\n"
+        f"\t\t}}"
+    )
+
+    return ",\n".join([size_block, disp_block, path_block, transform_block]), tool_name
+
+
+def build_frame_fit_block(
+    frame_fit: dict,
+    *,
+    prev_source: str,
+    frame_w: int,
+    frame_h: int,
+    x_pos: int = 1200,
+) -> tuple[str, str]:
+    """Static (no animation) Transform that scales + offsets the recording
+    to sit inside a browser-window background graphic on V1.
+
+    Input format mirrors Resolve's Edit-page Inspector:
+      - size: scale factor (default 1.0)
+      - x_px / y_px: pixel offset from frame centre. Positive Y = UP (Resolve
+        convention). Pixels are in the output-timeline reference.
+
+    The Transform sits at the END of the chain so intro / regions / outro
+    operate on the recording's full canvas; this Transform then composites
+    the entire animated result down into the browser-frame area.
+    """
+    size = float(frame_fit.get("size", 1.0))
+    x_px = float(frame_fit.get("x_px", 0))
+    y_px = float(frame_fit.get("y_px", 0))
+    # Top-down Center convention (matches the PolyPath waypoint Y we use
+    # elsewhere, empirically verified). Resolve's y_px is bottom-up, so
+    # negate to convert.
+    cx = 0.5 + x_px / frame_w
+    cy = 0.5 - y_px / frame_h
+
+    tool_name = "TransformFrameFit"
+    transform_block = (
+        f"\t\t{tool_name} = Transform {{\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tInputs = {{\n"
+        f"\t\t\t\tCenter = Input {{ Value = {{ {cx:.6f}, {cy:.6f} }}, }},\n"
+        f"\t\t\t\tSize = Input {{ Value = {size:.6f}, }},\n"
+        f"\t\t\t\tInput = Input {{ SourceOp = \"{prev_source}\", Source = \"Output\", }}\n"
+        f"\t\t\t}},\n"
+        f"\t\t\tViewInfo = OperatorInfo {{ Pos = {{ {x_pos}, 0 }} }},\n"
+        f"\t\t}}"
+    )
+    return transform_block, tool_name
+
+
+def build_outro_blocks(
+    outro: dict,
+    *,
+    fps: float,
+    add_zooms,
+    prev_source: str,
+    x_pos: int = 1000,
+) -> tuple[str, str]:
+    """Closing slide-out + zoom-out. Mirror of the intro: Phase A (zoom)
+    shrinks Size from 1.0 to to_size; Phase B (slide) animates Center.x
+    from 0.5 to to_x_norm. Both ease-IN (slow start, fast departure).
+
+    Returns (tools_text, last_tool_name).
+    """
+    start_t_ms = outro.get("start_t_ms", 0)
+    zoom_out_ms = outro.get("zoom_out_ms", 600)
+    slide_out_ms = outro.get("slide_out_ms", 1200)
+    overlap_ms = outro.get("overlap_ms", 300)
+    to_x_norm = outro.get("to_x_norm", -1.0)
+    to_size = outro.get("to_size", 0.7)
+
+    f_start = add_zooms.ms_to_frames(start_t_ms, fps)
+    f_zoom_end = add_zooms.ms_to_frames(start_t_ms + zoom_out_ms, fps)
+    f_slide_start = add_zooms.ms_to_frames(
+        start_t_ms + zoom_out_ms - overlap_ms, fps
+    )
+    f_slide_end = add_zooms.ms_to_frames(
+        start_t_ms + zoom_out_ms - overlap_ms + slide_out_ms, fps
+    )
+
+    offset_x = to_x_norm - 0.5
+
+    def kf_text(t, v, lh=None, rh=None):
+        parts = [f"{v:.4f}"]
+        if lh is not None:
+            parts.append(f"LH = {{ {lh[0]:.6f}, {lh[1]:.6f} }}")
+        if rh is not None:
+            parts.append(f"RH = {{ {rh[0]:.6f}, {rh[1]:.6f} }}")
+        return f"\t\t\t\t[{t}] = {{ {', '.join(parts)} }}"
+
+    # Size: 1.0 (ease-in) → to_size (hold) → to_size.
+    # Ease-in: RH at start = start value (flat), LH at end = start value (steep).
+    zoom_gap = max(1, f_zoom_end - f_start)
+    hold_gap = max(1, f_slide_end - f_zoom_end)
+    size_kfs = [
+        kf_text(f_start, 1.0, rh=(f_start + zoom_gap / 3, 1.0)),
+        kf_text(f_zoom_end, to_size,
+                lh=(f_zoom_end - zoom_gap / 3, 1.0),
+                rh=(f_zoom_end + hold_gap / 3, to_size)),
+        kf_text(f_slide_end, to_size,
+                lh=(f_slide_end - hold_gap / 3, to_size)),
+    ]
+    size_kf_text = ",\n".join(size_kfs)
+
+    # Displacement: 0 (hold) → 0 (ease-in) → 1.
+    pre_slide_gap = max(1, f_slide_start - f_start)
+    slide_gap = max(1, f_slide_end - f_slide_start)
+    disp_kfs = [
+        kf_text(f_start, 0.0, rh=(f_start + pre_slide_gap / 3, 0.0)),
+        kf_text(f_slide_start, 0.0,
+                lh=(f_slide_start - pre_slide_gap / 3, 0.0),
+                rh=(f_slide_start + slide_gap / 3, 0.0)),
+        kf_text(f_slide_end, 1.0,
+                lh=(f_slide_end - slide_gap / 3, 0.0)),
+    ]
+    disp_kf_text = ",\n".join(disp_kfs)
+
+    tool_name = "TransformOutro"
+    size_name = f"{tool_name}Size"
+    path_name = f"{tool_name}Path"
+    disp_name = f"{tool_name}Displacement"
+
+    rx, ry = offset_x / 3.0, 0.0
+
+    size_block = (
+        f"\t\t{size_name} = BezierSpline {{\n"
+        f"\t\t\tSplineColor = {{ Red = 225, Green = 0, Blue = 225 }},\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tNameSet = true,\n"
+        f"\t\t\tKeyFrames = {{\n{size_kf_text}\n\t\t\t}}\n"
+        f"\t\t}}"
+    )
+    disp_block = (
+        f"\t\t{disp_name} = BezierSpline {{\n"
+        f"\t\t\tSplineColor = {{ Red = 255, Green = 0, Blue = 178 }},\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tNameSet = true,\n"
+        f"\t\t\tKeyFrames = {{\n{disp_kf_text}\n\t\t\t}}\n"
+        f"\t\t}}"
+    )
+    path_block = (
+        f"\t\t{path_name} = PolyPath {{\n"
+        f"\t\t\tDrawMode = \"InsertAndModify\",\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tInputs = {{\n"
+        f"\t\t\t\tDisplacement = Input {{ SourceOp = \"{disp_name}\", Source = \"Value\", }},\n"
+        f"\t\t\t\tPolyLine = Input {{\n"
+        f"\t\t\t\t\tValue = Polyline {{\n"
+        f"\t\t\t\t\t\tPoints = {{\n"
+        f"\t\t\t\t\t\t\t{{ Linear = true, X = 0, Y = 0, RX = {rx:.6f}, RY = {ry:.6f} }},\n"
+        f"\t\t\t\t\t\t\t{{ Linear = true, X = {offset_x:.6f}, Y = 0, LX = {-rx:.6f}, LY = {-ry:.6f} }}\n"
+        f"\t\t\t\t\t\t}}\n"
+        f"\t\t\t\t\t}}\n"
+        f"\t\t\t\t}}\n"
+        f"\t\t\t}}\n"
+        f"\t\t}}"
+    )
+    transform_block = (
+        f"\t\t{tool_name} = Transform {{\n"
+        f"\t\t\tCtrlWZoom = false,\n"
+        f"\t\t\tInputs = {{\n"
+        f"\t\t\t\tCenter = Input {{ SourceOp = \"{path_name}\", Source = \"Position\", }},\n"
+        f"\t\t\t\tSize = Input {{ SourceOp = \"{size_name}\", Source = \"Value\", }},\n"
+        f"\t\t\t\tInput = Input {{ SourceOp = \"{prev_source}\", Source = \"Output\", }}\n"
+        f"\t\t\t}},\n"
+        f"\t\t\tViewInfo = OperatorInfo {{ Pos = {{ {x_pos}, 0 }} }},\n"
+        f"\t\t}}"
+    )
+
+    return ",\n".join([size_block, disp_block, path_block, transform_block]), tool_name
+
+
 def build_region_blocks(
     regions: list[dict],
     clicks: list[dict],
@@ -158,11 +476,27 @@ def build_region_blocks(
     frame_w: int,
     frame_h: int,
     add_zooms,
+    initial_prev_source: str = "MediaIn1",
+    coord_transform: dict | None = None,
 ) -> tuple[str, str, list[dict]]:
+    """If coord_transform is provided (a frame_fit-style dict), region
+    centres are mapped from recording-space normalized into
+    outer-compound-space normalized — i.e. the agent specifies where
+    the form lives in the recording, and this function compensates for
+    the static fit-into-frame transform that's already been applied
+    one compound deeper.
+    """
     blocks: list[str] = []
-    prev_source = "MediaIn1"
+    prev_source = initial_prev_source
     status: list[dict] = []
     tool_idx = 0
+
+    ct_size = ct_x_off = ct_y_off = None
+    if coord_transform:
+        ct_size = float(coord_transform.get("size", 1.0))
+        ct_x_off = float(coord_transform.get("x_px", 0)) / frame_w
+        # Resolve y is bottom-up; my normalized convention is top-down.
+        ct_y_off = -float(coord_transform.get("y_px", 0)) / frame_h
 
     for region in regions:
         rid = region.get("id", f"region-{tool_idx + 1}")
@@ -189,6 +523,12 @@ def build_region_blocks(
         # consistent with CSS. Empirically: passing a bottom-up Y ends
         # up looking at the wrong vertical half of the page.
         cy_norm_raw = cy_frame / frame_h
+        # If a frame_fit was applied to a deeper compound, transform
+        # centres to outer-compound space so the zoom lands on the same
+        # visual feature.
+        if ct_size is not None:
+            cx_norm_raw = 0.5 + ct_x_off + (cx_norm_raw - 0.5) * ct_size
+            cy_norm_raw = 0.5 + ct_y_off + (cy_norm_raw - 0.5) * ct_size
         cx_norm, cy_norm = add_zooms.frame_fill_clamp(cx_norm_raw, cy_norm_raw, zoom)
 
         pre_frames = add_zooms.ms_to_frames(pre_ms, fps)
@@ -298,9 +638,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="slug of the run folder under runs/")
+    parser.add_argument("--layer", choices=["inner", "outer", "all"], default="all",
+                        help="which subset of the plan to apply. "
+                             "inner = frame_fit only (target the raw+cursor+click "
+                             "compound). outer = intro/outro/regions (target the "
+                             "compound that wraps the framed recording with a "
+                             "background image; region centres are coord-transformed "
+                             "by frame_fit so they still land on the right spot). "
+                             "all = everything on one compound (single-clip flow).")
+    parser.add_argument("--track", type=int, default=None,
+                        help="video track to target. Defaults: inner→2, outer→1, all→2.")
     parser.add_argument("--clear", action="store_true",
-                        help="delete any existing Fusion comp on the V1 clip first")
+                        help="delete any existing Fusion comp on the target clip first")
     args = parser.parse_args()
+
+    if args.track is None:
+        args.track = {"inner": 2, "outer": 1, "all": 2}[args.layer]
 
     run_dir = (Path("runs") / args.run).resolve()
     plan_path = run_dir / "zoom-plan.json"
@@ -344,20 +697,20 @@ def main() -> int:
         return 5
 
     fps = float(project.GetSetting("timelineFrameRate") or "30")
-    v1_items = timeline.GetItemListInTrack("video", 1)
-    if not v1_items:
-        print("FAIL: V1 is empty", file=sys.stderr)
+    track_items = timeline.GetItemListInTrack("video", args.track)
+    if not track_items:
+        print(f"FAIL: V{args.track} is empty", file=sys.stderr)
         return 6
-    if len(v1_items) == 1:
-        clip = v1_items[0]
+    if len(track_items) == 1:
+        clip = track_items[0]
     else:
-        # Multiple clips on V1 — the compound clip from to-resolve.py
-        # is usually the longest (a few-second intro vs 30–60 s walk-
-        # through). Pick the longest; warn so the user can verify.
-        ranked = sorted(((it, it.GetDuration()) for it in v1_items),
+        # Multiple clips on the track — pick the longest (the
+        # to-resolve.py compound is far longer than typical
+        # intro/outro clips).
+        ranked = sorted(((it, it.GetDuration()) for it in track_items),
                         key=lambda p: -p[1])
         clip = ranked[0][0]
-        print(f"WARN: V1 has {len(v1_items)} clips. Picking longest:")
+        print(f"WARN: V{args.track} has {len(track_items)} clips. Picking longest:")
         for it, dur in ranked:
             mark = "→" if it is clip else " "
             print(f"  {mark} {it.GetName()!r} ({dur} frames)")
@@ -383,10 +736,51 @@ def main() -> int:
         return 8
     base_text = Path(base_path).read_text(encoding="utf-8")
 
-    regions = plan.get("regions", [])
-    if not regions:
-        print("plan has no regions — nothing to apply.")
+    plan_regions = plan.get("regions", [])
+    plan_intro = plan.get("intro")
+    plan_outro = plan.get("outro")
+    plan_frame_fit = plan.get("frame_fit")
+
+    # Layer filter: inner only emits the static frame_fit; outer skips
+    # frame_fit but uses it to coord-transform region centres so they
+    # land on the right spot in the outer-compound's frame.
+    if args.layer == "inner":
+        regions = []
+        intro = None
+        outro = None
+        frame_fit = plan_frame_fit
+        coord_transform = None
+    elif args.layer == "outer":
+        regions = plan_regions
+        intro = plan_intro
+        outro = plan_outro
+        frame_fit = None
+        coord_transform = plan_frame_fit
+    else:  # all
+        regions = plan_regions
+        intro = plan_intro
+        outro = plan_outro
+        frame_fit = plan_frame_fit
+        coord_transform = None
+
+    if not regions and not intro and not outro and not frame_fit:
+        print(f"layer={args.layer}: nothing to apply.")
         return 0
+    print(f"\nlayer: {args.layer} (target V{args.track})")
+
+    intro_tools, intro_last_tool = "", "MediaIn1"
+    if intro:
+        intro_tools, intro_last_tool = build_intro_blocks(
+            intro, fps=fps, add_zooms=add_zooms,
+        )
+        slide = intro.get("slide_in_ms", 1200)
+        zoom = intro.get("zoom_in_ms", 600)
+        overlap = intro.get("overlap_ms", 300)
+        start = intro.get("start_t_ms", 0)
+        print(f"\nintro: slide+zoom from t={start/1000:.2f}s "
+              f"(end at t={(start + slide - overlap + zoom)/1000:.2f}s) — "
+              f"from x_norm={intro.get('from_x_norm', -1.0)} size={intro.get('from_size', 0.7)} "
+              f"to centre full size")
 
     extra_tools, last_tool, statuses = build_region_blocks(
         regions, clicks,
@@ -394,6 +788,8 @@ def main() -> int:
         capture_scale=capture_scale,
         frame_w=frame_w, frame_h=frame_h,
         add_zooms=add_zooms,
+        initial_prev_source=intro_last_tool,
+        coord_transform=coord_transform,
     )
     print("\nregions:")
     for s in statuses:
@@ -407,11 +803,47 @@ def main() -> int:
         else:
             print(f"  skip  {rid}: {s['reason']}")
 
-    if not extra_tools.strip():
-        print("\nno regions kept — patched comp would be a no-op.")
+    # Outro hangs off the last tool in the chain so far (regions' last
+    # → intro's last → MediaIn1, in priority order).
+    pre_outro_last = last_tool if extra_tools.strip() else intro_last_tool
+    outro_tools, outro_last_tool = "", pre_outro_last
+    if outro:
+        outro_tools, outro_last_tool = build_outro_blocks(
+            outro, fps=fps, add_zooms=add_zooms, prev_source=pre_outro_last,
+        )
+        zo = outro.get("zoom_out_ms", 600)
+        so = outro.get("slide_out_ms", 1200)
+        ov = outro.get("overlap_ms", 300)
+        st = outro.get("start_t_ms", 0)
+        print(f"\noutro: zoom-out + slide-out from t={st/1000:.2f}s "
+              f"(end at t={(st + zo - ov + so)/1000:.2f}s) — "
+              f"to x_norm={outro.get('to_x_norm', -1.0)} size={outro.get('to_size', 0.7)}")
+
+    # Frame-fit hangs off the outro (or whichever was last so far).
+    pre_fit_last = outro_last_tool
+    fit_tools, fit_last_tool = "", pre_fit_last
+    if frame_fit:
+        fit_block, fit_last_tool = build_frame_fit_block(
+            frame_fit, prev_source=pre_fit_last,
+            frame_w=frame_w, frame_h=frame_h,
+        )
+        fit_tools = fit_block
+        print(f"\nframe-fit: size={frame_fit.get('size', 1.0):.3f} "
+              f"x_px={frame_fit.get('x_px', 0):.2f} "
+              f"y_px={frame_fit.get('y_px', 0):.2f} "
+              f"(static, end of chain)")
+
+    if (not intro_tools and not extra_tools.strip()
+            and not outro_tools and not fit_tools):
+        print("\nno intro/regions/outro/frame_fit — patched comp would be a no-op.")
         return 0
 
-    patched = add_zooms.patch_comp_text(base_text, extra_tools, saver_source=last_tool)
+    # Saver re-routes to the very last tool in the chain.
+    final_last = fit_last_tool
+    combined_tools = ",\n".join(
+        t for t in (intro_tools, extra_tools, outro_tools, fit_tools) if t.strip()
+    )
+    patched = add_zooms.patch_comp_text(base_text, combined_tools, saver_source=final_last)
     patched_path = str(run_dir / "_fusion_patched.comp")
     Path(patched_path).write_text(patched, encoding="utf-8")
     print(f"\npatched comp ({len(patched)} chars) → {patched_path}")

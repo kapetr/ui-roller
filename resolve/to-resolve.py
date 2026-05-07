@@ -212,34 +212,37 @@ def main() -> int:
         return 6
     project.SetCurrentTimeline(timeline)
 
-    # Resolve creates a new timeline with one video and one audio track by
-    # default. Add tracks for cursor and click overlays.
-    timeline.AddTrack("video")  # V2 — cursor
-    timeline.AddTrack("video")  # V3 — click
+    # Layout: V1 stays empty so the user can drop in a background or
+    # template behind the recording. The recording layers go on V2/V3/V4
+    # and get merged into a single compound on V2 (apply-zoom-plan.py
+    # looks on V2 by default).
+    timeline.AddTrack("video")  # V2 — raw
+    timeline.AddTrack("video")  # V3 — cursor
+    timeline.AddTrack("video")  # V4 — click
 
     timeline_start = timeline.GetStartFrame()
     audio_record_frame = timeline_start + ms_to_frames(audio_offset_ms, 30)
 
-    print("placing clips at timeline start:")
-    raw_ti = append_to_track(media_pool, raw_item, 1, timeline_start, media_type=1)
-    cursor_ti = append_to_track(media_pool, cursor_item, 2, timeline_start, media_type=1)
-    click_ti = append_to_track(media_pool, click_item, 3, timeline_start, media_type=1)
+    print("placing clips at timeline start (V1 left empty for background):")
+    raw_ti = append_to_track(media_pool, raw_item, 2, timeline_start, media_type=1)
+    cursor_ti = append_to_track(media_pool, cursor_item, 3, timeline_start, media_type=1)
+    click_ti = append_to_track(media_pool, click_item, 4, timeline_start, media_type=1)
     if audio_item is not None:
         append_to_track(media_pool, audio_item, 1, audio_record_frame, media_type=2)
         if audio_offset_ms > 0:
             print(f"  audio placed at +{audio_offset_ms:.0f} ms")
 
     placed = sum(1 for ti in (raw_ti, cursor_ti, click_ti) if ti is not None)
-    print(f"  {placed}/3 video tracks placed")
+    print(f"  {placed}/3 video tracks placed (V2 raw, V3 cursor, V4 click)")
 
-    # Wrap V1/V2/V3 into a compound clip so any transform (zoom, position,
+    # Wrap V2/V3/V4 into a compound clip so any transform (zoom, position,
     # scale-into-background) applied on the parent timeline moves all
     # three layers in lockstep. To edit a layer independently (hide
     # cursor for a beat, retime click rings, etc.) double-click the
     # compound to dive in. Skipped with --no-compound.
     compound_inputs = [ti for ti in (raw_ti, cursor_ti, click_ti) if ti is not None]
     if not args.no_compound and len(compound_inputs) >= 2:
-        print("\nmerging V1/V2/V3 into a compound clip…")
+        print("\nmerging V2/V3/V4 into a compound clip…")
         compound = media_pool.CreateCompoundClip(
             compound_inputs,
             {
@@ -248,9 +251,10 @@ def main() -> int:
             },
         )
         if compound:
-            print("  ✓ compound created — transform on V1 now syncs all layers")
+            print("  ✓ compound created — transform on V2 now syncs all layers")
         else:
-            print("  WARN: CreateCompoundClip returned None — layers stay separate")
+            print("  WARN: CreateCompoundClip returned None — layers stay separate. "
+                  "Select V2+V3+V4 → right-click → New Compound Clip in Resolve.")
 
     # Drop a marker per click event. AddMarker(frameId, color, name, note,
     # duration) — frameId is in frames from the timeline start. Markers
@@ -286,7 +290,8 @@ def main() -> int:
     print(f"  {marker_count} markers added")
 
     print("\ndone — switch to Resolve.")
-    print("  • Transform / scale the V1 compound to fit your background frame.")
+    print("  • V1 is empty — drop in a background or template here.")
+    print("  • Transform / scale the V2 compound to fit your background frame.")
     print("    Cursor and click rings follow automatically.")
     print("  • Add zoom/pan keyframes around the blue click markers in the")
     print("    Inspector. Each marker note carries the click's frame-pixel")
