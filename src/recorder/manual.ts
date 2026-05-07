@@ -28,7 +28,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium, type BrowserContext } from "playwright";
 import { config } from "../shared/config.ts";
@@ -96,6 +96,23 @@ async function main() {
   const rawPath = resolve(outDir, `raw.${config.recording.extension}`);
   const eventsPath = resolve(outDir, "events.json");
   const actualTimingsPath = resolve(outDir, "actual.timings.json");
+  const initPath = resolve(outDir, "init.json");
+
+  // Optional per-run initial state: localStorage entries scoped to the
+  // start URL's origin, applied via addInitScript before the page
+  // loads so the app sees them during first render. Schema:
+  //   { "localStorage": { "key1": "value1", ... } }
+  let initLocalStorage: Record<string, string> = {};
+  if (existsSync(initPath)) {
+    try {
+      const cfg = JSON.parse(await readFile(initPath, "utf8"));
+      if (cfg.localStorage && typeof cfg.localStorage === "object") {
+        initLocalStorage = cfg.localStorage;
+      }
+    } catch (err) {
+      console.error(`! failed to parse ${initPath}:`, err);
+    }
+  }
 
   await mkdir(outDir, { recursive: true });
   await rm(framesDir, { recursive: true, force: true });
@@ -202,6 +219,29 @@ async function main() {
       }, true);
     })();
   `);
+
+  // Apply per-run localStorage init *only* on the start URL's origin.
+  // addInitScript runs at every navigation in every frame; we filter
+  // by location.origin so cross-origin navigations (e.g. to a Keycloak
+  // login) don't pollute their localStorage with the app's settings.
+  if (Object.keys(initLocalStorage).length > 0) {
+    const targetOrigin = new URL(startUrl).origin;
+    const setters = Object.entries(initLocalStorage)
+      .map(([k, v]) =>
+        `try { localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(v)}); } catch (e) {}`
+      )
+      .join("\n        ");
+    await context.addInitScript(`
+      (() => {
+        if (location.origin !== ${JSON.stringify(targetOrigin)}) return;
+        ${setters}
+      })();
+    `);
+    console.log(
+      `▶ init: ${Object.keys(initLocalStorage).length} localStorage entr(ies) `
+      + `→ ${targetOrigin}`,
+    );
+  }
 
   // Track main-frame URL changes. Each entry becomes a navigate event
   // in events.json, which lets downstream tools (proposal applier,

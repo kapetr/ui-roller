@@ -54,6 +54,7 @@ Files inside `runs/<slug>/`:
 ```
 description.md       # the brief the user gave you
 exploration.md       # your UI map from step 2
+init.json            # optional: per-run state setup (localStorage, etc.)
 script.md            # narration with {{cue}} markers
 zoom-intent.md       # narrative pre-recording intent (step 5)
 speech.mp3           # TTS output (or user-supplied)
@@ -111,7 +112,8 @@ Walk the path the demo will follow. Capture:
 - The viewport regions where the action happens (top bar? left
   sidebar? main pane?). Note bbox approximations in CSS pixels.
 - Any state that needs setup before recording (clean account, seeded
-  data, a particular page).
+  data, a particular page, theme preference, dismissed onboarding,
+  feature flags).
 
 If the source code is local, read it too — it's often faster than
 clicking around to learn the UI.
@@ -123,6 +125,34 @@ covers.
 If Playwright isn't available (sandboxed env, auth wall, app not
 running), tell the user explicitly and ask for screenshots + a list of
 clickable elements with their aria-labels. Don't guess.
+
+#### Init config (per-run state)
+
+Apps often need particular initial state to record cleanly: light/dark
+theme, dismissed onboarding modals, a feature flag. Capture localStorage
+needs in `runs/<slug>/init.json`:
+
+```json
+{
+  "localStorage": {
+    "theme": "light",
+    "tour-dismissed": "true"
+  }
+}
+```
+
+The recorder applies these to the start URL's origin via Playwright's
+`addInitScript` before the page loads, so the app sees them during
+its first render. Cross-origin navigations (e.g. to a Keycloak login)
+are not affected.
+
+**Apply the same state during your Playwright exploration** so the
+UI you map matches what the recording will capture — set the same
+localStorage entries via `browser_evaluate` after each navigation,
+or pass them through with the same init script if your MCP supports
+it. If you skip this, your bboxes might be from the dark theme and
+the recording from the light theme, and the proposal will look
+correct but render off.
 
 ### 3. Draft the script
 
