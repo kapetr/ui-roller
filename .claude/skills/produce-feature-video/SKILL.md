@@ -72,8 +72,14 @@ Write the answer to `runs/<slug>/description.md`. Confirm the slug.
 
 ### 2. Explore the app
 
-Drive the app with the Playwright MCP. Walk the path the demo will
-follow. Capture:
+Drive the app with the Playwright MCP. **Resize the browser to the
+recorder's target viewport before capturing any coordinates** — read
+`config.viewport` from `src/shared/config.ts` (default 1920×1080) and
+call `browser_resize` to match. Bboxes captured at any other size are
+not transferable to the recording, so any `rect_css` in the proposal
+needs to be in recorder-viewport CSS pixels.
+
+Walk the path the demo will follow. Capture:
 
 - The route(s) involved.
 - The aria-label or id of every element you'd click in a demo of this
