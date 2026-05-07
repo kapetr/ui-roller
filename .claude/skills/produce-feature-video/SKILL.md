@@ -430,18 +430,6 @@ Write `runs/<slug>/zoom-plan.json`. Schema:
 
 ```json
 {
-  "intro": {                          // optional opening transition
-    "start_t_ms": 3500,
-    "slide_in_ms": 1200, "zoom_in_ms": 600, "overlap_ms": 300,
-    "from_x_norm": 1.5,                // off-right; -1.0 for off-left
-    "from_size": 0.7
-  },
-  "outro": {                          // optional closing transition (mirror)
-    "start_t_ms": 43000,
-    "zoom_out_ms": 600, "slide_out_ms": 1200, "overlap_ms": 300,
-    "to_x_norm": -1.0,
-    "to_size": 0.7
-  },
   "frame_fit": {                      // optional static fit-into-template
     "size": 0.904, "x_px": 0, "y_px": -31.953
   },
@@ -460,6 +448,14 @@ Write `runs/<slug>/zoom-plan.json`. Schema:
   ]
 }
 ```
+
+Opening / closing transitions live outside this plan now — they're
+Edit-page transition macros at `resolve/macros/` that the user installs
+once and drag-drops onto clip edges. The applier here only handles
+zoom regions and the static frame fit. If you need a quick preview
+animation before the user installs the macros, fall back to an earlier
+git revision of `apply-zoom-plan.py` (intro/outro builders existed
+before commit removing them).
 
 `pre_ms`/`hold_ms`/`post_ms` semantics: ramp-in / trailing dwell after
 last anchor / ramp-out. The dominant zoom duration is `last_t -
@@ -491,8 +487,8 @@ clips:
 2. **Outer compound (background + framed inner).** Tell the user to
    drop the background image on V1, then select V1 + V2 → New
    Compound Clip. The new compound usually lands on V1 (Resolve
-   compounds onto the topmost selected track). Then apply
-   `intro`/`outro`/`regions` to *this* outer compound:
+   compounds onto the topmost selected track). Then apply only the
+   zoom regions to *this* outer compound:
 
    ```sh
    python3 resolve/apply-zoom-plan.py --run <slug> --layer outer
@@ -500,8 +496,13 @@ clips:
 
    The applier reads `frame_fit` from the same plan file and
    coord-transforms region centres so they still land on the right
-   visual feature inside the framed recording. `intro`/`outro`
-   animate the whole scene (background + framed recording) together.
+   visual feature inside the framed recording.
+
+3. **Intro/outro transitions.** Drag-drop the `intro-slide-zoom-in`
+   and `outro-zoom-slide-out` transitions onto the outer compound's
+   left/right edges in the Edit page. The macros (in
+   `resolve/macros/`) snap to the trimmed clip boundaries; re-trimming
+   stays in sync.
 
 If there's no background template, run it as one shot:
 
