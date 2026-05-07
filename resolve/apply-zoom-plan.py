@@ -132,16 +132,19 @@ def resolve_region(
         centre_css = (rect["x"] + rect["width"] / 2,
                       rect["y"] + rect["height"] / 2)
     else:
-        if first_idx is None or last_idx is None:
+        if first_idx is None:
             return (first_t, last_t, None)  # caller errors if it needs centre
+        # Average the explicit anchor click bboxes only — NOT every
+        # click in [first_idx, last_idx]. Strays the user made between
+        # anchors would otherwise pull the centre off-axis.
+        anchor_idxs = [first_idx] if last_idx in (None, first_idx) else [first_idx, last_idx]
         sum_x = sum_y = 0.0
-        n = 0
-        for i in range(first_idx, last_idx + 1):
+        for i in anchor_idxs:
             cx, cy = _bbox_centre_css(clicks[i])
             sum_x += cx
             sum_y += cy
-            n += 1
-        centre_css = (sum_x / n, sum_y / n) if n else None
+        n = len(anchor_idxs)
+        centre_css = (sum_x / n, sum_y / n)
 
     return (first_t, last_t, centre_css)
 
@@ -182,7 +185,10 @@ def build_region_blocks(
         cx_frame = cx_css * capture_scale
         cy_frame = cy_css * capture_scale
         cx_norm_raw = cx_frame / frame_w
-        cy_norm_raw = 1.0 - (cy_frame / frame_h)  # Fusion Y is bottom-up
+        # PolyPath waypoint Y is top-down (Y=0 at top, Y=1 at bottom),
+        # consistent with CSS. Empirically: passing a bottom-up Y ends
+        # up looking at the wrong vertical half of the page.
+        cy_norm_raw = cy_frame / frame_h
         cx_norm, cy_norm = add_zooms.frame_fill_clamp(cx_norm_raw, cy_norm_raw, zoom)
 
         pre_frames = add_zooms.ms_to_frames(pre_ms, fps)
@@ -342,10 +348,19 @@ def main() -> int:
     if not v1_items:
         print("FAIL: V1 is empty", file=sys.stderr)
         return 6
-    if len(v1_items) > 1:
-        print(f"WARN: V1 has {len(v1_items)} clips — using the first one. "
-              "Did you forget to merge into a compound?")
-    clip = v1_items[0]
+    if len(v1_items) == 1:
+        clip = v1_items[0]
+    else:
+        # Multiple clips on V1 — the compound clip from to-resolve.py
+        # is usually the longest (a few-second intro vs 30–60 s walk-
+        # through). Pick the longest; warn so the user can verify.
+        ranked = sorted(((it, it.GetDuration()) for it in v1_items),
+                        key=lambda p: -p[1])
+        clip = ranked[0][0]
+        print(f"WARN: V1 has {len(v1_items)} clips. Picking longest:")
+        for it, dur in ranked:
+            mark = "→" if it is clip else " "
+            print(f"  {mark} {it.GetName()!r} ({dur} frames)")
     print(f"target clip: {clip.GetName()}")
     print(f"timeline fps: {fps}")
     print(f"frame size:  {frame_w}×{frame_h}")

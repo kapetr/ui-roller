@@ -251,35 +251,46 @@ def _kf_with_handles(
     v_prev: float | None = None,
     t_next: int | None = None,
     v_next: float | None = None,
+    smooth: bool = True,
 ) -> str:
-    """Render a BezierSpline keyframe in the format Resolve writes
-    natively when you keyframe a parameter manually:
-        [t] = { value, LH = { t', v' }, RH = { t'', v'' }, Flags = { Linear = true } }
-    LH/RH at 1/3 distance to neighbours (Fusion's default linear handle
-    layout). Linear flag set so interpolation is straight-line, but
-    handles must be present syntactically.
+    """Render a BezierSpline keyframe.
+
+    smooth=True (default): flat tangents at every keyframe. The handle
+    values match the keyframe's value, so the cubic bezier between
+    adjacent keyframes is a classic ease-in-out S-curve. No Linear flag.
+
+    smooth=False: linear interpolation. Handles sit on the line between
+    adjacent keyframes, and a Linear flag forces straight-line interp.
+    Handles must still be present syntactically.
+
+    LH/RH time positions are at 1/3 distance to neighbours either way —
+    Fusion's default placement.
     """
     parts = [f"{v:.4f}"]
     if t_prev is not None and v_prev is not None:
         lh_t = t - (t - t_prev) / 3
-        lh_v = v + (v_prev - v) / 3
+        lh_v = v if smooth else v + (v_prev - v) / 3
         parts.append(f"LH = {{ {lh_t:.6f}, {lh_v:.6f} }}")
     if t_next is not None and v_next is not None:
         rh_t = t + (t_next - t) / 3
-        rh_v = v + (v_next - v) / 3
+        rh_v = v if smooth else v + (v_next - v) / 3
         parts.append(f"RH = {{ {rh_t:.6f}, {rh_v:.6f} }}")
-    parts.append("Flags = { Linear = true }")
+    if not smooth:
+        parts.append("Flags = { Linear = true }")
     return f"\t\t\t\t[{t}] = {{ {', '.join(parts)} }}"
 
 
-def _kf_seq_with_handles(kf_seq: list[tuple[int, float]]) -> str:
-    """Render a list of (frame, value) into BezierSpline KeyFrames text
-    using Linear handles between adjacent keyframes."""
+def _kf_seq_with_handles(
+    kf_seq: list[tuple[int, float]],
+    smooth: bool = True,
+) -> str:
+    """Render a list of (frame, value) into BezierSpline KeyFrames text.
+    Defaults to smooth (ease-in-out) interpolation."""
     lines: list[str] = []
     for j, (t, v) in enumerate(kf_seq):
         t_prev, v_prev = (kf_seq[j - 1] if j > 0 else (None, None))
         t_next, v_next = (kf_seq[j + 1] if j < len(kf_seq) - 1 else (None, None))
-        lines.append(_kf_with_handles(t, v, t_prev, v_prev, t_next, v_next))
+        lines.append(_kf_with_handles(t, v, t_prev, v_prev, t_next, v_next, smooth=smooth))
     return ",\n".join(lines)
 
 
@@ -346,7 +357,8 @@ def _build_extra_tools_impl(
         cx_frame = (sum_x / n) * capture_scale
         cy_frame = (sum_y / n) * capture_scale
         cx_norm_raw = cx_frame / frame_w
-        cy_norm_raw = 1.0 - (cy_frame / frame_h)
+        # PolyPath waypoint Y is top-down (Y=0 at top), same as CSS.
+        cy_norm_raw = cy_frame / frame_h
 
         # Frame-fill clamp: keep the zoomed visible region inside the
         # source so we never reveal black behind the clip. Edge-of-screen
