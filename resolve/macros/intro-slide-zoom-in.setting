@@ -1,18 +1,23 @@
 {
 	Tools = ordered() {
-		IntroSlideZoomIn = GroupOperator {
+		IntroSlideZoomIn = MacroOperator {
 			CtrlWZoom = false,
 			NameSet = true,
 			Inputs = ordered() {
 				MainInput1 = InstanceInput {
+					SourceOp = "Merge1",
+					Source = "Background",
+					Name = "Outgoing",
+				},
+				MainInput2 = InstanceInput {
 					SourceOp = "Transform1",
 					Source = "Input",
-					Name = "Source",
+					Name = "Incoming",
 				},
 			},
 			Outputs = {
 				MainOutput1 = InstanceOutput {
-					SourceOp = "Transform1",
+					SourceOp = "Merge1",
 					Source = "Output",
 				}
 			},
@@ -59,9 +64,16 @@
 						Size = Input { SourceOp = "IntroSize", Source = "Value", }
 					},
 					ViewInfo = OperatorInfo { Pos = { 220, 0 } },
+				},
+				Merge1 = Merge {
+					CtrlWZoom = false,
+					Inputs = {
+						Foreground = Input { SourceOp = "Transform1", Source = "Output", }
+					},
+					ViewInfo = OperatorInfo { Pos = { 440, 0 } },
 				}
 			},
-			ActiveTool = "Transform1"
+			ActiveTool = "Merge1"
 		}
 	}
 }
