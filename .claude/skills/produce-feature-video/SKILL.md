@@ -18,6 +18,29 @@ The output of a run is a finished walkthrough video. Every routine step
 (script drafting, cue annotation, zoom-region planning, cursor sprite,
 click rings, Resolve assembly, zoom keyframes) is yours.
 
+## Operating convention
+
+You **run** every CLI command yourself via Bash — `pnpm tts`,
+`pnpm record-manual`, `pnpm assemble`, `python3 resolve/...`. Don't
+hand the user a command to copy-paste; you have the run-folder
+context, so you issue it with the right `--run <slug>` slug.
+
+What you **ask** the user to do is the parts only a human can: provide
+the brief, confirm the script, drive the browser during a recording,
+do the GUI steps in Resolve, polish the final cut. When you're about
+to launch a long-running interactive command (notably the recorder),
+brief them on what'll happen, wait for "ready", then run it.
+
+When a command exits, decide:
+
+- **Looks good** → continue to the next step, with a one-line update
+  ("take captured, 6 clicks, going to composite").
+- **Looks off** (click count mismatch, error, missing output) → tell
+  the user what you see and ask whether to re-run or proceed.
+
+Don't proceed silently when something's off; don't ask permission at
+every step when it's clearly working.
+
 ## Per-run folder
 
 All artifacts for one video live in `runs/<slug>/`. `runs/` is
@@ -263,7 +286,13 @@ not just words.
 
 ### 7. Record the take
 
-Tell the user to run, in their terminal:
+**You** run the command yourself with Bash. The user clicks through
+the browser the recorder opens — that's their part. Don't make them
+copy a CLI invocation; you've got the run-folder context, you can
+issue it with the right `--run` slug.
+
+Before launching: tell the user the per-take checklist (see below).
+Wait for them to confirm "ready". Then run:
 
 ```sh
 pnpm record-manual <start-url> --run <slug>
@@ -272,23 +301,32 @@ pnpm record-manual <start-url> --run <slug>
 (With `--run`, the recorder picks up `runs/<slug>/speech.mp3`
 automatically if it exists.)
 
-Then tell them:
+Per-take checklist for the user:
 
 - Put on headphones — the audio plays through the system, not into the
   recording.
-- Make sure the app is in the demo's starting state (logged in, fixtures
-  seeded, on the right page) — note the specific state from
-  `exploration.md`.
+- Make sure the app is in the demo's starting state (logged in/out as
+  needed, fixtures seeded, on the right page). Cite the specific state
+  from `exploration.md` so they can match it.
 - 5-second prep window from the first frame, then audio starts.
 - Click decisively, paced to the narration. Pause briefly before clicks
   the narration emphasises ("…click {{test-button}}, *[pause]* green
   check").
 - Hold for ~1 s after the last click, then close the browser window
   (Cmd+W or red ✕). Recording finalises automatically.
-- If the take is fluffed, just close and re-run — takes are cheap.
+- If the take is fluffed, close the browser early — takes are cheap.
 
-After the recorder exits, `runs/<slug>/` will contain `raw.mov`,
-`events.json`, and timings.
+Use a generous `timeout` (the command runs as long as the user takes
+to click through plus encoding time — figure on 5 min). The recorder
+prints `events.json` size and click count when it finishes; eyeball
+those before moving on.
+
+After the recorder exits:
+
+- If click count matches expected cue count → continue to step 8
+  automatically; tell the user "take is in, going to composite".
+- If click count is off, or the recorder errored → tell the user
+  what's wrong and offer to re-run. Don't proceed silently.
 
 ### 8. Composite cursor + clicks
 
