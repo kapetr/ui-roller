@@ -203,6 +203,21 @@ async function main() {
     })();
   `);
 
+  // Track main-frame URL changes. Each entry becomes a navigate event
+  // in events.json, which lets downstream tools (proposal applier,
+  // future heuristics) tell page-changing clicks apart from in-place
+  // state changes. Subframes are ignored — they're noise for our use.
+  let lastUrl: string | null = null;
+  page.on("framenavigated", (frame) => {
+    if (frame !== page.mainFrame()) return;
+    const url = frame.url();
+    // Skip blank/about: URLs and consecutive duplicates (Playwright
+    // sometimes fires the event twice for the same URL during redirects).
+    if (!url || url === "about:blank" || url === lastUrl) return;
+    lastUrl = url;
+    logger.record({ kind: "navigate", t: logger.now(), url });
+  });
+
   console.log(`▶ opening ${startUrl}`);
   await page.goto(startUrl, { waitUntil: "domcontentloaded" });
 

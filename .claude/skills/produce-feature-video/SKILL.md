@@ -54,13 +54,15 @@ Files inside `runs/<slug>/`:
 ```
 description.md       # the brief the user gave you
 exploration.md       # your UI map from step 2
-script.md            # narration with {{cue}} markers (source of truth)
-zoom-proposal.json   # your pre-recording zoom plan
+script.md            # narration with {{cue}} markers
+zoom-intent.md       # narrative pre-recording intent (step 5)
 speech.mp3           # TTS output (or user-supplied)
+speech.txt           # cleaned text for premium-voice hand-off
 raw.mov              # screencast (after recording)
 cursor.mov           # cursor track (after compositing)
 click.mov            # click-ring track (after compositing)
-events.json          # click + move events with timing
+events.json          # click + move + navigate events with timing
+zoom-plan.json       # concrete plan derived from intent + events (step 10)
 final.mp4            # quick-reference composite preview
 ```
 
@@ -71,12 +73,11 @@ final.mp4            # quick-reference composite preview
   through to narration; logs `events.json` + `raw.mov`
 - `pnpm assemble --run <slug>` — composites cursor + click rings
 - `python3 resolve/to-resolve.py --run <slug>` — Resolve timeline assembly
-- `python3 resolve/apply-zoom-proposal.py --run <slug>` — keyframes the
-  V1 compound clip from `zoom-proposal.json` + actual click times in
-  `events.json`
+- `python3 resolve/apply-zoom-plan.py --run <slug>` — dumb pipe:
+  reads `zoom-plan.json` + `events.json`, emits Fusion keyframes
 - `python3 resolve/add-zooms.py --run <slug>` — heuristic fallback that
-  groups clicks by cluster instead of using a proposal. Kept for cases
-  where the proposal pipeline doesn't fit; not the default
+  groups clicks by cluster. Kept for cases where the agent isn't
+  available to author a plan; not the default
 
 DaVinci Resolve **Studio** is required (Free version doesn't expose
 Fusion scripting).
@@ -178,72 +179,25 @@ invent a descriptive cue (`{{primary-cta}}`) and note in
 The TTS strips `{{cues}}` automatically; you don't need a separate
 "cue-stripped" file.
 
-### 5. Plan zoom regions
+### 5. Write zoom intent (pre-recording)
 
-Write `runs/<slug>/zoom-proposal.json` describing where the camera
-should push in. The schema:
+Write `runs/<slug>/zoom-intent.md` — plain English, narrative. Where
+the camera should focus and why; where it should stay wide. No JSON,
+no anchor names, no schema. The point is to align with the user on
+the *visual story* before the take, while reasoning is cheap.
 
-```json
-{
-  "viewport": { "width": 1920, "height": 1080 },
-  "regions": [
-    {
-      "id": "providers-form",
-      "anchor_cues": ["api-key-input", "test-button"],
-      "rect_css": { "x": 720, "y": 280, "width": 480, "height": 240 },
-      "zoom": 1.5,
-      "pre_ms": 300,
-      "hold_ms": 400,
-      "post_ms": 400,
-      "rationale": "Form fill — keep frame on the inputs while the
-                    surrounding chrome stays constant."
-    }
-  ]
-}
-```
+Two sections, brief:
 
-Field semantics:
+- **Wide** — beats that should stay zoomed out (page navigations,
+  layout-overview narration, opening/closing wide shots).
+- **Zoom-in** — for each, one paragraph: which beat, what region of
+  the UI, rough zoom factor (1.3–1.5 is the safe band), and a
+  sentence on why.
 
-- `anchor_cues`: ordered list of cue names that this region covers. The
-  region runs from the first anchor's click to the last anchor's click,
-  plus the configured ramps. At least one cue per region. Use a
-  **single-cue region with extended `pre_ms`/`hold_ms`** to cover a
-  passive narration beat (no click) adjacent to a cued click — e.g.
-  the camera ramps in over 4 s of "OAuth Token" narration before
-  catching the user's `api-key` click, then holds 2 s while "if you
-  already have one provisioned" finishes.
-- `rect_css`: optional. The interesting region in CSS pixels. If
-  omitted, the applier centres on the mean of the anchors' click bbox
-  centres (computed from `events.json` after recording).
-- `zoom`: peak zoom factor. **Default 1.3** — safe for any region with
-  surrounding content that changes (top-bar buttons whose click
-  navigates, sidebar items whose click loads a new view). **Push to
-  1.5 for tight forms** (login, single-input dialogs, modals). **Don't
-  exceed 1.8** — anything tighter looks pixely on a 4K capture.
-- `pre_ms`: ramp-in duration before the first anchor click, ms. Default 300.
-- `hold_ms`: trailing dwell at peak zoom *after* the last anchor click,
-  ms. Default 400. **Note**: this is NOT the total zoom-in duration —
-  the dominant term is `(last_click - first_click)`, the click span,
-  driven by narration pacing during the recording.
-- `post_ms`: ramp-out duration after `hold_ms` ends. Default 400.
-- `rationale`: one sentence. Used by you to think clearly, also surfaced
-  in applier output for the user to scan.
+Validate with the user. The hard zoom rules below still inform what
+you propose, but enforcement happens later.
 
-**Hard rules. The applier validates these and refuses to emit
-keyframes if they're violated:**
-
-1. **A region must span at least 2 s of click activity.** Anchor the
-   region on cues at least 2 s apart in narration (or expect the
-   applier to skip it). Quick double-clicks aren't a region — the
-   camera barely arrives before it has to leave.
-2. **Single-cue regions are skipped** unless `hold_ms` ≥ 1500. One
-   click is a navigation moment; stay zoomed out so the viewer sees
-   the whole page change.
-3. **The Centre is clamped frame-fill.** Edge-of-screen regions get
-   pulled toward the centre by exactly the amount needed to keep the
-   source covering the output frame. No black gutter, ever.
-
-**When NOT to propose a zoom region** — these belong wide:
+**Hard rules to honour when proposing zoom regions** — these belong wide:
 
 - **Whole page is changing** — navigation, route change, big content
   swap. Zooming during a transition makes the viewer dizzy.
@@ -257,17 +211,12 @@ keyframes if they're violated:**
   bottom action bar walk where the bar IS the layout.
 - **Title screens, hero shots, outros**.
 
-**Validate the proposal with the user before moving on.** Don't just
-write the file silently — summarise each region you're proposing in one
-or two lines (id, what cues anchor it, why you picked the zoom factor,
-and any region you considered but deliberately *didn't* include because
-of the rules above). Ask the user to confirm or redirect. This is the
-last cheap moment to fix the framing — after recording, anchor cues
-and click sequence are baked in.
-
-The user can also edit `zoom-proposal.json` directly between this step
-and step 10, or tweak transforms in Resolve afterward. All three are
-valid.
+**Validate the intent with the user before moving on.** Don't just
+write the file silently — summarise each region you're proposing in
+one or two lines, and any region you considered but deliberately
+*didn't* include because of the hard rules. Ask the user to confirm
+or redirect. The intent doc is your written contract with them; the
+concrete plan in step 10 will be derived from it.
 
 ### 6. Generate audio
 
@@ -383,41 +332,86 @@ If the script reports the compound wasn't created automatically, tell
 the user:
 
 > *"Select V1+V2+V3 in the Resolve timeline → right-click → New
-> Compound Clip. Tell me when done — `add-zooms.py` and the proposal
-> applier both need a single compound on V1."*
+> Compound Clip. Tell me when done — both the applier and add-zooms.py
+> need a single compound on V1."*
 
-### 10. Resolve part 2 — apply zoom keyframes
+### 10. Resolve part 2 — resolve intent into a concrete plan, apply
 
-Run:
+This is **your** step. Don't run the applier yet.
 
-```sh
-python3 resolve/apply-zoom-proposal.py --run <slug>
+Read everything you need to make concrete decisions:
+
+- `runs/<slug>/zoom-intent.md` — what we agreed before recording.
+- `runs/<slug>/script.md` — narration + cue markers.
+- `runs/<slug>/events.json` — the actual recording. For each click,
+  inspect `t` (ms), `label`, `bbox`. Note `kind: "navigate"` events
+  too — they mark page transitions where the camera should be wide.
+- `runs/<slug>/speech.mp3` (or its duration) and the audio offset
+  from `events.json`.audio.startedAtMs — to reason about where in
+  the audio each click landed.
+
+Map intent to recording:
+
+- For each intent region, find which clicks it should bind to. Use
+  click `label` as a hint (matches the cue you used in the script
+  most of the time), but trust `t` and `bbox` more — they don't lie.
+- Stray clicks the user made by accident: ignore them.
+- Cued clicks that didn't happen (user tabbed or used keyboard): if
+  the region needs that anchor, fall back to a `*_t_ms` time anchor
+  picked from where in the audio the beat lives.
+- Time-only regions (no surrounding click) need an explicit `rect_css`
+  to tell the camera where to look.
+
+Write `runs/<slug>/zoom-plan.json`. Schema:
+
+```json
+{
+  "regions": [
+    {
+      "id": "login-form",
+      "first_click_index": 0,    // 0-indexed into events.json clicks
+      "last_click_index": 1,
+      "first_t_ms": null,         // overrides click_index when present
+      "last_t_ms": null,
+      "rect_css": null,           // optional; mean of click bboxes otherwise
+      "zoom": 1.5,
+      "pre_ms": 300, "hold_ms": 400, "post_ms": 400,
+      "rationale": "..."
+    }
+  ]
+}
 ```
 
-This reads `zoom-proposal.json` + `events.json`, binds each region's
-`anchor_cues` to actual click events (ordinal match — the Nth cue in
-the script binds to the Nth click in events.json — verified against
-each click's `label`), emits a Fusion comp with Transform/Size
-keyframes for every valid region, and attaches it to the V1 compound
-clip.
+`pre_ms`/`hold_ms`/`post_ms` semantics are unchanged (ramp-in /
+trailing dwell after last anchor / ramp-out). The dominant zoom
+duration is still `last_t - first_t` plus ramps; `min_duration_ms`
+isn't a field anymore — you choose the anchors so the camera dwells
+long enough.
 
-Watch the applier's log:
+**Show the plan to the user**: print each region in plain English
+("login-form: clicks 0 and 1, zoom 1.5×, pre 300 / hold 400 / post
+400, centred on the form"), plus any clicks you deliberately ignored
+as strays. Confirm before applying.
 
-- **Verification mismatch** (cue's expected identifier ≠ actual click's
-  label): the user clicked the wrong element, missed a click, or
-  double-clicked. The applier still proceeds with ordinal match but
-  warns. If the warning lists a clearly-wrong binding, tell the user
-  and offer to re-record or hand-fix the proposal.
-- **Region skipped: span too short**: bump anchor cues farther apart
-  in narration, or accept that region as wide.
+Once confirmed, run:
 
-After the script runs:
+```sh
+python3 resolve/apply-zoom-plan.py --run <slug>
+```
+
+This is a dumb pipe — reads `zoom-plan.json` + `events.json`, emits
+a Fusion comp with Transform/Size keyframes, attaches it to V1.
+
+After the comp lands:
 
 - Scrub the timeline. Each region should pulse zoom around its
-  anchor clicks.
+  anchor times.
 - The user can delete individual Transforms in Fusion to remove a
   zoom they don't like, or hand-edit Size keyframes for one specific
   region.
+
+If a region needs revision, edit `zoom-plan.json` directly and re-run
+the applier with `--clear`. You don't need to redo the whole flow.
 
 ### 11. Hand off final polish
 
@@ -436,9 +430,9 @@ Tell the user the timeline is ready, and that what's left for them:
 |---|---|
 | Recorder hangs after browser close       | Cmd+W in the browser; SIGINT (Ctrl+C) in the terminal also works                              |
 | Voice sounds wrong on a phrase           | Reword the phrase in `script.md` and regenerate `speech.mp3`                                  |
-| Click landed off-target                  | Re-record. Don't edit `events.json` — the binder will warn anyway                             |
-| Zoom feels too aggressive                | Lower the region's `zoom` in `zoom-proposal.json`; raise `pre_ms`/`post_ms` for softer ramps  |
-| A region got skipped you wanted zoomed   | Anchor it on cues farther apart in narration so the span clears 2 s; or lower the per-region `min_duration_ms` (proposal field) |
+| Click landed off-target                  | Re-record. The plan can stray-click-skip but not relabel a click   |
+| Zoom feels too aggressive                | Lower the region's `zoom` in `zoom-plan.json`; raise `pre_ms`/`post_ms` for softer ramps      |
+| Camera misses a beat you wanted          | Add or extend a region in `zoom-plan.json` — use `first_t_ms` to anchor on a non-click moment |
 | Black gutter behind a clip               | Shouldn't happen — applier clamps Centre. If it does, re-run with `--clear`                   |
 | Need a different language                | Translate `script.md`, regenerate `speech.mp3`. `events.json` is unchanged so the rest of the pipeline reuses the take |
 | Resolve produces black with comp applied | Known fragile area in Fusion. Run `python3 resolve/add-zooms.py --basic --run <slug>` to verify the simple path works, then re-run the applier |
@@ -455,11 +449,15 @@ Tell the user the timeline is ready, and that what's left for them:
 
 - Don't write the script for the recorder ("now click X, now click Y").
   Write it for the viewer; clicks fall out of good narration.
-- Don't bypass the cue convention. If you can't think of a cue name,
-  the demo is too vague — clarify with the user.
+- Don't add a cue for every click reflexively. Cues mark beats you'll
+  reference later (in `zoom-intent.md` or while reasoning). If a cue
+  has no purpose, drop it.
 - Don't propose a zoom for every cue. Most cues stay wide. The hard
-  rules in step 5 are baked in to make under-zooming the safe default.
+  rules in step 5 are there to make under-zooming the safe default.
 - Don't ask the user to edit `events.json`. If timing is off, re-record
-  or fix the proposal.
+  or fix `zoom-plan.json`.
+- Don't skip step 10's "show the plan" beat. Confirming click-by-click
+  with the user is what catches the case where you bound a stray
+  click to a region.
 - Don't skip exploration. Without aria-labels and region knowledge the
-  proposal degenerates to "guess the rect".
+  intent degenerates to "guess the rect".
