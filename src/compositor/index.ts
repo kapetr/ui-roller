@@ -11,15 +11,33 @@ import {
 } from "./click-effects.ts";
 import { spawnRgbaEncoder, compositeFinal } from "./ffmpeg.ts";
 
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let sceneName: string | undefined;
+  let run: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--run") {
+      run = args[++i];
+    } else if (!a.startsWith("--") && !sceneName) {
+      sceneName = a;
+    }
+  }
+  return { sceneName: sceneName ?? run, run };
+}
+
 async function main() {
-  const sceneName = process.argv[2];
+  const { sceneName, run } = parseArgs();
   if (!sceneName) {
-    console.error("usage: pnpm assemble <scene>");
+    console.error("usage: pnpm assemble <scene-label>   # outputs land in out/");
+    console.error("       pnpm assemble --run <slug>    # outputs land in runs/<slug>/");
     process.exit(1);
     return;
   }
 
-  const outDir = resolve(process.cwd(), config.outDir);
+  const outDir = run
+    ? resolve(process.cwd(), "runs", run)
+    : resolve(process.cwd(), config.outDir);
   const rawPath = resolve(outDir, `raw.${config.recording.extension}`);
   const eventsPath = resolve(outDir, "events.json");
   const cursorPath = resolve(outDir, "cursor.mov");

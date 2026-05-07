@@ -452,6 +452,9 @@ def _build_extra_tools_impl(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run", default=None,
+                        help="slug of a per-run folder under runs/. Equivalent to "
+                             "--out-dir runs/<slug>/.")
     parser.add_argument("--out-dir", default="out")
     parser.add_argument("--zoom", type=float, default=1.3,
                         help="peak zoom factor (default 1.3 — safe for any region "
@@ -474,7 +477,7 @@ def main() -> int:
                              "Resolve writes when you keyframe a Transform manually.")
     args = parser.parse_args()
 
-    out_dir = Path(args.out_dir).resolve()
+    out_dir = (Path("runs") / args.run if args.run else Path(args.out_dir)).resolve()
     events_path = out_dir / "events.json"
     if not events_path.exists():
         print(f"FAIL: {events_path} not found", file=sys.stderr)

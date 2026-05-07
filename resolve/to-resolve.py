@@ -94,6 +94,10 @@ def append_to_track(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scene", nargs="?", default=None, help="scene name (informational)")
+    parser.add_argument("--run", default=None,
+                        help="slug of a per-run folder under runs/. Equivalent to "
+                             "--out-dir runs/<slug>/ and (if no --audio) "
+                             "--audio runs/<slug>/speech.mp3.")
     parser.add_argument("--out-dir", default="out", help="recorder output directory")
     parser.add_argument("--audio", default=None, help="optional narration audio file (overrides events.audio.path)")
     parser.add_argument("--timeline-name", default=None, help="timeline name")
@@ -106,7 +110,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    out_dir = Path(args.out_dir).resolve()
+    if args.run:
+        out_dir = Path("runs") / args.run
+        if args.audio is None:
+            cand = out_dir / "speech.mp3"
+            if cand.exists():
+                args.audio = str(cand)
+        if args.scene is None:
+            args.scene = args.run
+    else:
+        out_dir = Path(args.out_dir)
+    out_dir = out_dir.resolve()
     events_path = out_dir / "events.json"
     if not events_path.exists():
         print(f"events.json not found at {events_path}", file=sys.stderr)

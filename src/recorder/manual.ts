@@ -1,6 +1,7 @@
 // Hand-driven recorder.
 //
-//   pnpm record-manual <start-url> [--audio path/to/narration.mp3]
+//   pnpm record-manual <start-url> [--run <slug>]
+//                                  [--audio path/to/narration.mp3]
 //                                  [--audio-delay-ms 5000]
 //
 // Spins up a non-headless browser at the configured viewport, injects a
@@ -10,17 +11,23 @@
 // recorder. The compositor + Resolve export pipelines downstream don't
 // know which mode produced the recording.
 //
+// --run:             slug of a per-run folder under runs/. Outputs land
+//                    in runs/<slug>/. If absent, falls back to config.outDir
+//                    (default "out/").
 // --audio:           macOS-only (afplay). Plays the file through the
 //                    system audio so the operator can pace clicks to
 //                    narration. The audio is NOT captured into the
 //                    recording — events.json records the start offset
 //                    so Resolve can place the clip at the right moment.
+//                    With --run and no --audio, defaults to
+//                    runs/<slug>/speech.mp3 if it exists.
 // --audio-delay-ms:  delay between first screencast frame and audio
 //                    start, ms. Default 5000 (5 s prep window).
 //
 // Stop the recording by closing the browser window.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium, type BrowserContext } from "playwright";
@@ -46,6 +53,7 @@ function parseArgs() {
   let startUrl: string | undefined;
   let audioPath: string | undefined;
   let audioDelayMs = 5000;
+  let run: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -53,25 +61,37 @@ function parseArgs() {
       audioPath = args[++i];
     } else if (a === "--audio-delay-ms") {
       audioDelayMs = parseInt(args[++i] ?? "", 10);
+    } else if (a === "--run") {
+      run = args[++i];
     } else if (!a.startsWith("--") && !startUrl) {
       startUrl = a;
     }
   }
-  return { startUrl, audioPath, audioDelayMs };
+  return { startUrl, audioPath, audioDelayMs, run };
 }
 
 async function main() {
-  const { startUrl, audioPath, audioDelayMs } = parseArgs();
+  const { startUrl, audioPath, audioDelayMs, run } = parseArgs();
   if (!startUrl) {
-    console.error("usage: pnpm record-manual <start-url> [--audio path] [--audio-delay-ms 5000]");
-    console.error("e.g.   pnpm record-manual http://humr.localhost:4444/");
-    console.error("e.g.   pnpm record-manual http://humr.localhost:4444/ --audio speech-generation/humr_test_speech.mp3");
+    console.error("usage: pnpm record-manual <start-url> [--run <slug>] [--audio path] [--audio-delay-ms 5000]");
+    console.error("e.g.   pnpm record-manual https://example.com/ --run myfeature");
     process.exit(1);
     return;
   }
-  const audioAbs = audioPath ? resolve(audioPath) : undefined;
 
-  const outDir = resolve(process.cwd(), config.outDir);
+  const outDir = run
+    ? resolve(process.cwd(), "runs", run)
+    : resolve(process.cwd(), config.outDir);
+
+  // Audio resolution: explicit --audio wins; else with --run, default to
+  // runs/<slug>/speech.mp3 if present; else no audio.
+  let audioAbs: string | undefined;
+  if (audioPath) {
+    audioAbs = resolve(audioPath);
+  } else if (run) {
+    const candidate = resolve(outDir, "speech.mp3");
+    if (existsSync(candidate)) audioAbs = candidate;
+  }
   const framesDir = resolve(outDir, ".frames");
   const rawPath = resolve(outDir, `raw.${config.recording.extension}`);
   const eventsPath = resolve(outDir, "events.json");
@@ -285,7 +305,7 @@ async function main() {
   );
 
   console.log(
-    "\nNext: pnpm assemble manual   (or whatever scene name you want to label this take as)",
+    `\nNext: pnpm assemble ${run ? `--run ${run}` : "<scene-label>"}`,
   );
 }
 

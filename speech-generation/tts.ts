@@ -1,12 +1,15 @@
 // Generate narration audio from a script using ElevenLabs.
 //
 //   ELEVENLABS_API_KEY=sk_... pnpm tts <script.txt> [voice-id] [out-base]
+//   ELEVENLABS_API_KEY=sk_... pnpm tts --run <slug> [voice-id]
 //
-// Defaults voice to Jackson (2zGvynULFssveGrcP8hi) and out-base to the
+// In --run mode, reads runs/<slug>/script.md (cues stripped) and writes
+// runs/<slug>/speech.mp3.
+//
+// Otherwise, defaults voice to Brian (free tier) and out-base to the
 // script filename without extension. Strips {{cue}} markers from the
-// script before sending to TTS — they're metadata for scripted-scene
-// alignment, not narration content. For the manual-recording workflow
-// you don't need cues; just write plain narration text.
+// script before sending to TTS — they're metadata for matching cues to
+// click events later, not narration content.
 //
 // Output: <out-base>.mp3 next to wherever you ran the command from.
 
@@ -28,12 +31,40 @@ const CUE_RE = /\{\{[a-z0-9_\-]+\}\}/gi;
 const envPath = path.resolve(".env");
 if (existsSync(envPath)) process.loadEnvFile(envPath);
 
+function parseCli() {
+  const args = process.argv.slice(2);
+  let run: string | undefined;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--run") {
+      run = args[++i];
+    } else {
+      positional.push(a);
+    }
+  }
+  return { run, positional };
+}
+
 async function main() {
-  const [scriptPath, voiceArg, outArg] = process.argv.slice(2);
+  const { run, positional } = parseCli();
+  let scriptPath: string | undefined;
+  let voiceArg: string | undefined;
+  let outArg: string | undefined;
+
+  if (run) {
+    scriptPath = path.resolve("runs", run, "script.md");
+    [voiceArg, outArg] = positional;
+    if (!outArg) outArg = path.resolve("runs", run, "speech");
+  } else {
+    [scriptPath, voiceArg, outArg] = positional;
+  }
+
   if (!scriptPath) {
     console.error("usage: pnpm tts <script.txt> [voice-id] [out-base]");
-    console.error("  voice-id defaults to Jackson (2zGvynULFssveGrcP8hi)");
-    console.error("  out-base defaults to <script-without-extension>");
+    console.error("       pnpm tts --run <slug> [voice-id]");
+    console.error("  --run <slug>: reads runs/<slug>/script.md, writes runs/<slug>/speech.mp3");
+    console.error("  voice-id defaults to Brian (nPczCjzI2devNBz1zQrb, free tier)");
     process.exit(1);
   }
 
