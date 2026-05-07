@@ -177,8 +177,12 @@ Field semantics:
   navigates, sidebar items whose click loads a new view). **Push to
   1.5 for tight forms** (login, single-input dialogs, modals). **Don't
   exceed 1.8** — anything tighter looks pixely on a 4K capture.
-- `pre_ms` / `hold_ms` / `post_ms`: ramp-in / hold-at-peak / ramp-out
-  durations in ms. Defaults 300 / 400 / 400.
+- `pre_ms`: ramp-in duration before the first anchor click, ms. Default 300.
+- `hold_ms`: trailing dwell at peak zoom *after* the last anchor click,
+  ms. Default 400. **Note**: this is NOT the total zoom-in duration —
+  the dominant term is `(last_click - first_click)`, the click span,
+  driven by narration pacing during the recording.
+- `post_ms`: ramp-out duration after `hold_ms` ends. Default 400.
 - `rationale`: one sentence. Used by you to think clearly, also surfaced
   in applier output for the user to scan.
 
@@ -210,8 +214,17 @@ keyframes if they're violated:**
   bottom action bar walk where the bar IS the layout.
 - **Title screens, hero shots, outros**.
 
-The user can edit `zoom-proposal.json` between this step and step 10,
-or tweak transforms in Resolve afterward. Both are valid.
+**Validate the proposal with the user before moving on.** Don't just
+write the file silently — summarise each region you're proposing in one
+or two lines (id, what cues anchor it, why you picked the zoom factor,
+and any region you considered but deliberately *didn't* include because
+of the rules above). Ask the user to confirm or redirect. This is the
+last cheap moment to fix the framing — after recording, anchor cues
+and click sequence are baked in.
+
+The user can also edit `zoom-proposal.json` directly between this step
+and step 10, or tweak transforms in Resolve afterward. All three are
+valid.
 
 ### 6. Generate audio
 
