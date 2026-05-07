@@ -231,6 +231,17 @@ def _kf_with_handles(
     return f"\t\t\t\t[{t}] = {{ {', '.join(parts)} }}"
 
 
+def _kf_seq_with_handles(kf_seq: list[tuple[int, float]]) -> str:
+    """Render a list of (frame, value) into BezierSpline KeyFrames text
+    using Linear handles between adjacent keyframes."""
+    lines: list[str] = []
+    for j, (t, v) in enumerate(kf_seq):
+        t_prev, v_prev = (kf_seq[j - 1] if j > 0 else (None, None))
+        t_next, v_next = (kf_seq[j + 1] if j < len(kf_seq) - 1 else (None, None))
+        lines.append(_kf_with_handles(t, v, t_prev, v_prev, t_next, v_next))
+    return ",\n".join(lines)
+
+
 def _build_extra_tools_impl(
     click_events: list[dict],
     *,
@@ -247,18 +258,20 @@ def _build_extra_tools_impl(
 ) -> tuple[str, str, list[list[dict]]]:
     """One Transform per zoom region (group of consecutive nearby clicks).
     Each Transform has:
-      - Static Centre at its group's mean bbox centre.
-      - Size animated by a BezierSpline modifier with handle-format
-        keyframes (Resolve's native format; the no-handle variant we
-        tried earlier gave black output even with Size = 1.0 reading
-        correctly in the inspector).
+      - Centre animated via PolyPath (two waypoints — frame centre at
+        (0.5, 0.5) and group centre — driven by a Displacement
+        BezierSpline that goes 0 → 1 → 0 in lockstep with Size).
+      - Size animated by a BezierSpline modifier 1.0 → zoom → 1.0.
 
-    Outside its group's [f_pre, f_post] window, each Size spline holds
-    1.0 (Fusion clamps to first/last keyframe value), so chaining N
-    Transforms is identity at any frame outside ALL groups.
+    Why animated Centre: with Size=1.0 a Transform with non-default
+    Centre still SHIFTS the image (Fusion treats Centre as the source-
+    point that maps to the output centre, not just a zoom anchor). A
+    chain of Transforms each with their own static Centre cumulatively
+    shifts the image off-screen even between zoom regions. Animating
+    Centre back to (0.5, 0.5) when Size=1.0 makes each Transform a
+    true no-op outside its window.
 
-    Returns (tools_text, last_tool_name, groups). The groups list is
-    informational — main() prints it for visibility.
+    Returns (tools_text, last_tool_name, groups).
     """
     pre_frames = ms_to_frames(pre_ms, fps)
     hold_frames = ms_to_frames(hold_ms, fps)
@@ -292,33 +305,80 @@ def _build_extra_tools_impl(
         cx_norm = cx_frame / frame_w
         cy_norm = 1.0 - (cy_frame / frame_h)
 
+        # PolyPath waypoint offsets from (0.5, 0.5) — Fusion paths are
+        # relative to the path's centre which defaults to frame middle.
+        # Linear-bezier handles: 1/3 distance to neighbour.
+        dx = cx_norm - 0.5
+        dy = cy_norm - 0.5
+        rx = dx / 3.0
+        ry = dy / 3.0
+
         tool_name = f"Transform{i}"
         size_name = f"{tool_name}Size"
+        path_name = f"{tool_name}Path"
+        disp_name = f"{tool_name}Displacement"
         x_pos = 220 + (i - 1) * 60
 
-        # Build keyframe sequence with explicit anchor at frame 0 so the
-        # spline doesn't extrapolate backwards into negative Size.
-        kf_seq: list[tuple[int, float]] = []
+        # Size keyframes: 1.0 → zoom (peak) → 1.0
+        size_kf_seq: list[tuple[int, float]] = []
         if f_pre > 0:
-            kf_seq.append((0, 1.0))
-        kf_seq.append((f_pre, 1.0))
-        kf_seq.append((f_peak_in, zoom))
-        kf_seq.append((f_peak_out, zoom))
-        kf_seq.append((f_post, 1.0))
+            size_kf_seq.append((0, 1.0))
+        size_kf_seq += [
+            (f_pre, 1.0),
+            (f_peak_in, zoom),
+            (f_peak_out, zoom),
+            (f_post, 1.0),
+        ]
+        size_kf = _kf_seq_with_handles(size_kf_seq)
 
-        kf_lines: list[str] = []
-        for j, (t, v) in enumerate(kf_seq):
-            t_prev, v_prev = (kf_seq[j - 1] if j > 0 else (None, None))
-            t_next, v_next = (kf_seq[j + 1] if j < len(kf_seq) - 1 else (None, None))
-            kf_lines.append(_kf_with_handles(t, v, t_prev, v_prev, t_next, v_next))
-        kf = ",\n".join(kf_lines)
+        # Displacement keyframes mirror Size: 0 outside the window, 1
+        # at peak. Path point 1 = (0,0) offset = (0.5, 0.5); path point 2
+        # = (dx, dy) offset = group centre. So displacement=0 keeps
+        # Centre at frame middle, displacement=1 puts it at the group.
+        disp_kf_seq: list[tuple[int, float]] = []
+        if f_pre > 0:
+            disp_kf_seq.append((0, 0.0))
+        disp_kf_seq += [
+            (f_pre, 0.0),
+            (f_peak_in, 1.0),
+            (f_peak_out, 1.0),
+            (f_post, 0.0),
+        ]
+        disp_kf = _kf_seq_with_handles(disp_kf_seq)
 
-        spline_block = (
+        size_block = (
             f"\t\t{size_name} = BezierSpline {{\n"
             f"\t\t\tSplineColor = {{ Red = 225, Green = 0, Blue = 225 }},\n"
             f"\t\t\tCtrlWZoom = false,\n"
             f"\t\t\tNameSet = true,\n"
-            f"\t\t\tKeyFrames = {{\n{kf}\n\t\t\t}}\n"
+            f"\t\t\tKeyFrames = {{\n{size_kf}\n\t\t\t}}\n"
+            f"\t\t}}"
+        )
+
+        disp_block = (
+            f"\t\t{disp_name} = BezierSpline {{\n"
+            f"\t\t\tSplineColor = {{ Red = 255, Green = 0, Blue = 178 }},\n"
+            f"\t\t\tCtrlWZoom = false,\n"
+            f"\t\t\tNameSet = true,\n"
+            f"\t\t\tKeyFrames = {{\n{disp_kf}\n\t\t\t}}\n"
+            f"\t\t}}"
+        )
+
+        path_block = (
+            f"\t\t{path_name} = PolyPath {{\n"
+            f"\t\t\tDrawMode = \"InsertAndModify\",\n"
+            f"\t\t\tCtrlWZoom = false,\n"
+            f"\t\t\tInputs = {{\n"
+            f"\t\t\t\tDisplacement = Input {{ SourceOp = \"{disp_name}\", Source = \"Value\", }},\n"
+            f"\t\t\t\tPolyLine = Input {{\n"
+            f"\t\t\t\t\tValue = Polyline {{\n"
+            f"\t\t\t\t\t\tPoints = {{\n"
+            f"\t\t\t\t\t\t\t{{ Linear = true, X = 0, Y = 0, RX = {rx:.6f}, RY = {ry:.6f} }},\n"
+            f"\t\t\t\t\t\t\t{{ Linear = true, X = {dx:.6f}, Y = {dy:.6f}, LX = {-rx:.6f}, LY = {-ry:.6f} }}\n"
+            f"\t\t\t\t\t\t}}\n"
+            f"\t\t\t\t\t}}\n"
+            f"\t\t\t\t}}\n"
+            f"\t\t\t}}\n"
             f"\t\t}}"
         )
 
@@ -326,7 +386,7 @@ def _build_extra_tools_impl(
             f"\t\t{tool_name} = Transform {{\n"
             f"\t\t\tCtrlWZoom = false,\n"
             f"\t\t\tInputs = {{\n"
-            f"\t\t\t\tCenter = Input {{ Value = {{ {cx_norm:.4f}, {cy_norm:.4f} }}, }},\n"
+            f"\t\t\t\tCenter = Input {{ SourceOp = \"{path_name}\", Source = \"Position\", }},\n"
             f"\t\t\t\tSize = Input {{ SourceOp = \"{size_name}\", Source = \"Value\", }},\n"
             f"\t\t\t\tInput = Input {{ SourceOp = \"{prev_source}\", Source = \"Output\", }}\n"
             f"\t\t\t}},\n"
@@ -334,8 +394,7 @@ def _build_extra_tools_impl(
             f"\t\t}}"
         )
 
-        blocks.append(spline_block)
-        blocks.append(transform_block)
+        blocks.extend([size_block, disp_block, path_block, transform_block])
         prev_source = tool_name
 
     return ",\n".join(blocks), prev_source, groups
