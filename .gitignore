@@ -4,6 +4,8 @@ out/
 runs/
 *.log
 .DS_Store
+.playwright-mcp/
+__pycache__/
 
 .env
 .env.local

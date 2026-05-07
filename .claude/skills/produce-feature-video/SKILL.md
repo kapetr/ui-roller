@@ -114,6 +114,11 @@ Save to `runs/<slug>/script.md`. Tips:
 - Roughly: each visible UI moment ≈ one short sentence ("now the
   agents page", "click providers"). The recorder will pace clicks to
   the narration, so the click rhythm follows the sentence rhythm.
+- A leading Markdown title (`# Script — …`) is fine for file
+  organisation; `pnpm tts` strips Markdown headers before sending to
+  the API. **But** if you hand off to the ElevenLabs UI for a premium
+  voice, paste `speech.txt` (auto-generated, cleaned), not
+  `script.md` — the UI doesn't strip anything.
 
 Iterate with the user. Don't move on until they confirm the script.
 
@@ -231,23 +236,30 @@ valid.
 Try the canonical TTS first:
 
 ```sh
-ELEVENLABS_API_KEY=… pnpm tts --run <slug>
+ELEVENLABS_API_KEY=… pnpm tts --run <slug> [--speed 1.1]
 ```
 
-Default voice is Brian (free tier). For a different free-tier voice,
-pass the voice id as the second arg.
+Default voice is Brian (free tier); default speed is 1.1 (a touch
+faster than neutral, which reads slow for product walkthroughs). For
+a different free-tier voice, pass the voice id as the second arg. For
+slower/faster delivery, pass `--speed` (clamped to ElevenLabs' 0.7–1.2
+envelope).
+
+`--run` mode also writes `runs/<slug>/speech.txt` — the cleaned text
+sent to TTS, with `{{cues}}`, Markdown headers, and orphan spaces
+before punctuation already stripped. **Use this for premium-voice
+hand-off** (see below); never paste `script.md` into a TTS UI directly,
+because TTS will read both the title and the cue tokens aloud.
 
 If the user wants a premium ElevenLabs voice (Library/shared voices
 require a paid plan; the API can't access them on free tier), tell
-them: *"Premium voices need to be generated in the ElevenLabs UI. Open
-the script at `runs/<slug>/script.md`, copy it (the cues are
-automatically read as plain text and shouldn't break narration but
-strip them if they do), generate the audio, and save the file as
-`runs/<slug>/speech.mp3`. Tell me when you're done."*
+them: *"Premium voices need the ElevenLabs UI. Paste the contents of
+`runs/<slug>/speech.txt` (already cleaned), generate, and save the
+result as `runs/<slug>/speech.mp3`. Tell me when you're done."*
 
-Listen-check before recording: read `speech.mp3` back if any sentence
-sounds wrong, re-write that sentence in `script.md` and regenerate.
-TTS prosody depends on punctuation.
+Listen-check before recording. If any sentence sounds wrong, reword
+in `script.md` and regenerate — TTS prosody depends on punctuation,
+not just words.
 
 ### 7. Record the take
 
