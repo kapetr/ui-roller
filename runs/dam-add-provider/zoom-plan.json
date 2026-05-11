@@ -1,0 +1,46 @@
+{
+  "intro": {
+    "start_t_ms": 3500,
+    "slide_in_ms": 1200,
+    "zoom_in_ms": 600,
+    "overlap_ms": 300,
+    "from_x_norm": 1.5,
+    "from_size": 0.7
+  },
+  "outro": {
+    "start_t_ms": 43000,
+    "zoom_out_ms": 600,
+    "slide_out_ms": 1200,
+    "overlap_ms": 300,
+    "to_x_norm": -1.0,
+    "to_size": 0.7
+  },
+  "frame_fit": {
+    "size": 0.904,
+    "x_px": 0,
+    "y_px": -31.953
+  },
+  "regions": [
+    {
+      "id": "login-form",
+      "first_click_index": 0,
+      "last_click_index": 2,
+      "zoom": 1.5,
+      "pre_ms": 300,
+      "hold_ms": 400,
+      "post_ms": 400,
+      "rationale": "Tight zoom on the Keycloak card while the user types credentials and clicks Sign In. Centre auto-derived from click bboxes (username at top, Sign In at bottom of card)."
+    },
+    {
+      "id": "provider-credential-tabs",
+      "first_t_ms": 28000,
+      "last_click_index": 6,
+      "rect_css": { "x": 600, "y": 270, "width": 600, "height": 130 },
+      "zoom": 1.5,
+      "pre_ms": 2000,
+      "hold_ms": 3500,
+      "post_ms": 700,
+      "rationale": "The two-credential-modes beat. Camera ramps in from t=26s (right after the 'Set up a provider' click + navigation) reaching peak at t=28s, then dwells through the API Key click (t=36.77s) and well into the closing narration. Ramps out by t≈41s. rect_css fixes centre on the tabs+input row regardless of where the user's stray clicks landed inside the card."
+    }
+  ]
+}

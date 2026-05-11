@@ -1,7 +1,12 @@
 node_modules/
 dist/
 out/
-runs/
+runs/*
+!runs/*/
+runs/*/*
+!runs/*/*.md
+!runs/*/*.json
+!runs/*/speech.txt
 *.log
 .DS_Store
 .playwright-mcp/

@@ -1,0 +1,81 @@
+{
+  "frame_fit": {
+    "size": 0.904,
+    "x_px": 0,
+    "y_px": -31.953
+  },
+  "regions": [
+    {
+      "id": "login-form",
+      "first_click_index": 1,
+      "last_click_index": 2,
+      "zoom": 1.4,
+      "pre_ms": 400,
+      "hold_ms": 500,
+      "post_ms": 500,
+      "rationale": "Keycloak sign-in card; tightens the small form on a mostly-empty page."
+    },
+    {
+      "id": "get-started-pill-1",
+      "first_click_index": 3,
+      "last_click_index": 3,
+      "zoom": 1.5,
+      "pre_ms": 300,
+      "hold_ms": 400,
+      "post_ms": 400,
+      "rationale": "Top-of-page pill is small; tightens to give the click presence on an otherwise empty agents page."
+    },
+    {
+      "id": "anthropic-provider-card",
+      "first_click_index": 5,
+      "last_click_index": 8,
+      "first_t_ms": 21300,
+      "zoom": 1.4,
+      "pre_ms": 600,
+      "hold_ms": 600,
+      "post_ms": 500,
+      "rationale": "Paste → Test → Save in one row. Holds across token-input, test, save (clicks 5, 7, 8). Centre is anchored on those click bboxes (mean of paste + save row). first_t_ms=21300 starts the ramp-in (f_pre=20700) just past R2's f_post=20690 — abuts cleanly with no overlap, so the wide gap between the pill-1 zoom and this card zoom is ~10ms instead of 9s. Centre still on the paste/test/save row. Page navigation (t=19947) sits inside R2's tail and the brief gap, where wide is appropriate. Click 4 (svg, stray) at t=23933 is inside this region's hold; harmless."
+    },
+    {
+      "id": "template-picker",
+      "first_click_index": 12,
+      "last_click_index": 12,
+      "zoom": 1.3,
+      "pre_ms": 300,
+      "hold_ms": 400,
+      "post_ms": 400,
+      "rationale": "Slight tighten on the template list inside the modal; modal already sits on a dimmed background so a heavier zoom would feel claustrophobic."
+    },
+    {
+      "id": "configure-form",
+      "first_click_index": 13,
+      "last_click_index": 17,
+      "zoom": 1.3,
+      "pre_ms": 400,
+      "hold_ms": 600,
+      "post_ms": 500,
+      "rationale": "Configure step: Name + Connections + Network access + Create. Holds while the user toggles (clicks 13-16 are the connection-checkbox stray-cluster) and lands on Create (click 17). Mean of clicks ≈ (920, 580) which sits near the form centre."
+    },
+    {
+      "id": "chat-input",
+      "first_click_index": 19,
+      "last_click_index": 19,
+      "zoom": 1.4,
+      "pre_ms": 400,
+      "hold_ms": 4000,
+      "post_ms": 500,
+      "rationale": "Prompt typing + send. {{send}} cue was unbound (Enter-to-submit, no click), so anchor only on prompt-input click and dwell 4s to cover the typing/send window before the wait beat goes wide."
+    },
+    {
+      "id": "files-and-tabs",
+      "first_click_index": 21,
+      "last_click_index": 23,
+      "rect_css": { "x": 1580, "y": 0, "width": 340, "height": 540 },
+      "zoom": 1.3,
+      "pre_ms": 400,
+      "hold_ms": 600,
+      "post_ms": 600,
+      "rationale": "Right-panel beat. {{app-js}} cue was unbound — user opened index.html (click 21) instead. Region holds through index.html → LOG → CONFIG (clicks 21, 22, 23). rect_css explicitly frames the top-half of the narrow right panel; the click bboxes alone would centre near the tabs and let too much of the chat area into frame."
+    }
+  ]
+}
