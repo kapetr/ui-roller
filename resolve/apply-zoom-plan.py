@@ -390,7 +390,12 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.track is None:
-        args.track = {"inner": 2, "outer": 1, "all": 2}[args.layer]
+        # outer used to default to V1 when frame_fit lived on a V1+V2
+        # outer compound; the current flow keeps the recording on V2
+        # (with frame_fit on V2's Inspector) and the background on V1
+        # as a parallel track, so outer's regions Fusion comp goes on
+        # V2 alongside the Inspector frame_fit.
+        args.track = {"inner": 2, "outer": 2, "all": 2}[args.layer]
 
     run_dir = (Path("runs") / args.run).resolve()
     plan_path = run_dir / "zoom-plan.json"
@@ -456,6 +461,42 @@ def main() -> int:
     print(f"frame size:  {frame_w}×{frame_h}")
     print(f"clicks in events.json: {len(clicks)}")
 
+    plan_regions = plan.get("regions", [])
+    plan_frame_fit = plan.get("frame_fit")
+
+    # Inner layer: write frame_fit straight to the clip's Inspector
+    # (Edit-page Pan/Tilt/Zoom). Visible in Video properties, easy to
+    # tweak by hand, and survives Fusion-comp regenerations on the
+    # outer compound. No Fusion comp emitted for this layer.
+    if args.layer == "inner":
+        if not plan_frame_fit:
+            print("layer=inner but plan has no frame_fit — nothing to apply.")
+            return 0
+        size = float(plan_frame_fit.get("size", 1.0))
+        x_px = float(plan_frame_fit.get("x_px", 0))
+        y_px = float(plan_frame_fit.get("y_px", 0))
+        # SetProperty returns True/False per Resolve API. Tilt is
+        # bottom-up positive (matches Inspector). Zoom is a multiplier
+        # applied to both X and Y; ZoomGang stays linked.
+        results = {
+            "ZoomX": clip.SetProperty("ZoomX", size),
+            "ZoomY": clip.SetProperty("ZoomY", size),
+            "Pan":   clip.SetProperty("Pan", x_px),
+            "Tilt":  clip.SetProperty("Tilt", y_px),
+        }
+        print(f"\nlayer: inner (target V{args.track}, Inspector-level)")
+        for k, ok in results.items():
+            v = {"ZoomX": size, "ZoomY": size, "Pan": x_px, "Tilt": y_px}[k]
+            print(f"  {'✓' if ok else '✗'} {k} = {v}")
+        if not all(results.values()):
+            return 9
+        # If the user previously ran the Fusion-comp version of inner,
+        # clear stale comps so they don't double-apply.
+        for name in list(clip.GetFusionCompNameList()):
+            clip.DeleteFusionCompByName(name)
+        print("  cleared any prior Fusion comps on this clip.")
+        return 0
+
     if args.clear or clip.GetFusionCompCount() > 0:
         for name in list(clip.GetFusionCompNameList()):
             ok = clip.DeleteFusionCompByName(name)
@@ -473,20 +514,18 @@ def main() -> int:
         return 8
     base_text = Path(base_path).read_text(encoding="utf-8")
 
-    plan_regions = plan.get("regions", [])
-    plan_frame_fit = plan.get("frame_fit")
-
-    # Layer filter: inner only emits the static frame_fit; outer applies
-    # regions only and uses frame_fit to coord-transform region centres
-    # so they land on the right spot in the outer-compound's frame.
-    if args.layer == "inner":
-        regions = []
-        frame_fit = plan_frame_fit
-        coord_transform = None
-    elif args.layer == "outer":
+    # Layer filter for the Fusion-comp path. (Inner is handled earlier
+    # via Inspector SetProperty and never reaches this block.) Outer
+    # applies regions only — Fusion runs BEFORE Inspector's clip-level
+    # transform in Resolve's pipeline, so the regions zoom on the
+    # recording's raw canvas and the static frame_fit (already on V2's
+    # Inspector) fits the result into the browser frame after. No
+    # coord_transform needed because there's no outer compound:
+    # background sits on V1, recording on V2 as parallel tracks.
+    if args.layer == "outer":
         regions = plan_regions
         frame_fit = None
-        coord_transform = plan_frame_fit
+        coord_transform = None
     else:  # all
         regions = plan_regions
         frame_fit = plan_frame_fit

@@ -1,0 +1,10 @@
+{
+  "browser-frame": {
+    "description": "Standard browser-window background graphic. The recording inset is scaled and offset to sit inside the simulated browser viewport area. Numbers were dialled in on the dam-add-provider walkthrough; if the user has a different template, override per-run in zoom-plan.json.",
+    "frame_fit": {
+      "size": 0.904,
+      "x_px": 0,
+      "y_px": -31.953
+    }
+  }
+}

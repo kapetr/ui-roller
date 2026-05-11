@@ -467,11 +467,20 @@ the camera dwells long enough.
 400, centred on the form"), plus any clicks you deliberately ignored
 as strays. Confirm before applying.
 
-#### Apply in two layers when the user wants a background template
+#### Apply in two layers — the standard flow with a background template
 
-If the user has a background graphic / browser-window template they
-want behind the recording, the workflow splits into two compound
-clips:
+This is the default. Most runs sit the recording inside a
+browser-window background graphic, so the workflow splits into two
+compound clips: an inner one for the recording itself (with a static
+fit-into-template transform), and an outer one that adds the
+background underneath.
+
+**Pick the frame_fit values from `resolve/templates.json`.** This file
+holds repo-level presets for the static transforms (size + x/y pixel
+offsets) that match the templates the user has on hand. Default key
+is `browser-frame` — copy that block into the run's `zoom-plan.json`
+as the `frame_fit` field. Override per-run only if the user has a
+different template.
 
 1. **Inner compound (raw + cursor + click).** After `to-resolve.py`,
    ask the user to compound V2+V3+V4 into a single clip on V2. Then
@@ -481,8 +490,10 @@ clips:
    python3 resolve/apply-zoom-plan.py --run <slug> --layer inner
    ```
 
-   This is a static Transform that sits the recording inside the
-   template's viewport area (no animation).
+   This writes the values straight to the V2 clip's Inspector
+   (Edit-page `Pan` / `Tilt` / `ZoomX` / `ZoomY`) via Resolve's
+   `SetProperty` API. Visible in Inspector → Video, easy to tweak
+   by hand, no Fusion comp involved at this layer.
 
 2. **Outer compound (background + framed inner).** Tell the user to
    drop the background image on V1, then select V1 + V2 → New
@@ -502,9 +513,13 @@ clips:
    and `outro-zoom-slide-out` transitions onto the outer compound's
    left/right edges in the Edit page. The macros (in
    `resolve/macros/`) snap to the trimmed clip boundaries; re-trimming
-   stays in sync.
+   stays in sync. These are **not** in `zoom-plan.json` anymore — the
+   plan is regions + frame_fit only.
 
-If there's no background template, run it as one shot:
+#### No background template (rare)
+
+If the user explicitly doesn't want a template, skip the layered
+flow and run a single pass on V2:
 
 ```sh
 python3 resolve/apply-zoom-plan.py --run <slug>
