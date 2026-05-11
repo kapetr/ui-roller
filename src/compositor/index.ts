@@ -15,22 +15,30 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let sceneName: string | undefined;
   let run: string | undefined;
+  // Most runs only need cursor.mov + click.mov to feed into Resolve;
+  // final.mp4 is a quick-reference composite that doubles assemble's
+  // runtime. Off by default; opt in with --final.
+  let withFinal = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--run") {
       run = args[++i];
+    } else if (a === "--final") {
+      withFinal = true;
     } else if (!a.startsWith("--") && !sceneName) {
       sceneName = a;
     }
   }
-  return { sceneName: sceneName ?? run, run };
+  return { sceneName: sceneName ?? run, run, withFinal };
 }
 
 async function main() {
-  const { sceneName, run } = parseArgs();
+  const { sceneName, run, withFinal } = parseArgs();
   if (!sceneName) {
     console.error("usage: pnpm assemble <scene-label>   # outputs land in out/");
     console.error("       pnpm assemble --run <slug>    # outputs land in runs/<slug>/");
+    console.error("  --final      also render the quick-reference final.mp4 composite");
+    console.error("               (off by default — Resolve only needs cursor.mov + click.mov)");
     process.exit(1);
     return;
   }
@@ -99,6 +107,7 @@ async function main() {
     strokeCss: config.compositor.clickEffect.strokeCss,
     color: config.compositor.clickEffect.color,
     peakAlpha: config.compositor.clickEffect.peakAlpha,
+    fillAlpha: config.compositor.clickEffect.fillAlpha,
     ease: config.compositor.clickEffect.easeBezier,
   });
   const ringFrameCount = clickTimeline.frames.reduce(
@@ -118,16 +127,20 @@ async function main() {
       streamClickEffectFrames({ timeline: clickTimeline, frame, out }),
   });
 
-  console.log(`▶ compositing final…`);
-  const compStart = Date.now();
-  await compositeFinal({
-    basePath: rawPath,
-    overlayPaths: [cursorPath, clickPath],
-    outputPath: finalPath,
-    fps: config.compositor.fps,
-    finalCodec: config.compositor.finalCodec,
-  });
-  console.log(`✓ wrote ${finalPath} (${((Date.now() - compStart) / 1000).toFixed(1)}s)`);
+  if (withFinal) {
+    console.log(`▶ compositing final…`);
+    const compStart = Date.now();
+    await compositeFinal({
+      basePath: rawPath,
+      overlayPaths: [cursorPath, clickPath],
+      outputPath: finalPath,
+      fps: config.compositor.fps,
+      finalCodec: config.compositor.finalCodec,
+    });
+    console.log(`✓ wrote ${finalPath} (${((Date.now() - compStart) / 1000).toFixed(1)}s)`);
+  } else {
+    console.log(`(skipping final.mp4 — pass --final to render the preview composite)`);
+  }
 }
 
 type RgbaTrackOptions = {
