@@ -34,19 +34,23 @@ export const config = {
     clickEffect: {
       // Animation life from click event onward. Ring expands and fades
       // across this window.
-      durationMs: 500,
+      durationMs: 600,
       // Peak ring radius in CSS pixels (scaled to frame px at render time).
       // 60 ≈ a comfortable ~6% of a 1080p frame's width.
       peakRadiusCss: 60,
       // Stroke thickness in CSS pixels. Stays constant through the
       // animation; just the radius and alpha change.
       strokeCss: 3,
-      // Ring colour [r, g, b] 0-255 plus peak alpha 0-1.
-      color: [255, 255, 255] as readonly [number, number, number],
+      // Ring colour [r, g, b] 0-255 — #3c92fd.
+      color: [60, 146, 253] as readonly [number, number, number],
+      // Stroke peak alpha (0-1).
       peakAlpha: 0.85,
-      // Cubic-bezier for radius growth + alpha decay. iOS ease-out gives
-      // a satisfying fast-then-slow pulse.
-      easeBezier: [0.32, 0.72, 0, 1] as readonly [number, number, number, number],
+      // Inside-the-ring fill alpha (0-1). Same colour as the stroke,
+      // softer fill so the click point reads through.
+      fillAlpha: 0.2,
+      // Cubic-bezier for radius growth + alpha decay. Smoother
+      // ease-out — less front-loaded than the previous iOS curve.
+      easeBezier: [0.25, 0.46, 0.45, 0.94] as readonly [number, number, number, number],
     },
     cursor: {
       // Sprite size as a fraction of the LAYOUT (CSS) viewport width.

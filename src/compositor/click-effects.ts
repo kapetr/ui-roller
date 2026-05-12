@@ -7,7 +7,8 @@ export type Ring = {
   cy: number; // frame px
   centerRadius: number; // frame px
   halfThickness: number; // frame px
-  alpha: number; // 0-1
+  alpha: number; // stroke alpha 0-1
+  fillAlpha: number; // inner-disc fill alpha 0-1
   color: readonly [number, number, number]; // 0-255
 };
 
@@ -28,6 +29,7 @@ export type ClickEffectsOptions = {
   strokeCss: number;
   color: readonly [number, number, number];
   peakAlpha: number;
+  fillAlpha: number;
   ease: BezierTuple;
 };
 
@@ -75,6 +77,7 @@ export function buildClickEffectsTimeline(
         centerRadius: k * peakRadius,
         halfThickness,
         alpha: opts.peakAlpha * (1 - k),
+        fillAlpha: opts.fillAlpha * (1 - k),
         color: opts.color,
       });
     }
@@ -161,17 +164,24 @@ function drawRing(
       const dy = y + 0.5 - ring.cy;
       const dSq = dx * dx + dy * dy;
       if (dSq > outerRSq) continue;
-      if (dSq < innerRSq) continue;
 
-      // Coverage = 1 in the band's interior, ramps to 0 within 1 px of
-      // either edge for cheap antialiasing.
-      const dist = Math.sqrt(dSq);
-      const fromInner = dist - innerR;
-      const fromOuter = outerR - dist;
-      const coverage = Math.min(1, fromInner, fromOuter);
-      if (coverage <= 0) continue;
+      let a: number;
+      if (dSq < innerRSq) {
+        // Filled interior — flat fillAlpha. The stroke's inner-edge AA
+        // (next branch) handles the visible boundary, so the fill
+        // doesn't need its own outer-edge soft-stop.
+        if (ring.fillAlpha <= 0) continue;
+        a = ring.fillAlpha;
+      } else {
+        // Stroke band — antialiased on both edges (1 px ramp).
+        const dist = Math.sqrt(dSq);
+        const fromInner = dist - innerR;
+        const fromOuter = outerR - dist;
+        const coverage = Math.min(1, fromInner, fromOuter);
+        if (coverage <= 0) continue;
+        a = ring.alpha * coverage;
+      }
 
-      const a = ring.alpha * coverage;
       const off = y * stride + x * 4;
       const dstA = buf[off + 3]! / 255;
       const outA = a + dstA * (1 - a);
