@@ -1,0 +1,1419 @@
+{
+  "voice": "am_michael",
+  "rate": "+0%",
+  "duration_ms": 120425,
+  "text": "Dam runs your AI coding agent in its own Kubernetes pod. Credentials safe, network sandboxed, awake when you're not.\n\nSign in and follow three steps to your first agent.\n\nFirst, a model provider. Anthropic is supported today — OpenAI and Google coming soon. Connect via OAuth or API key. Paste, test, save.\n\nThen — connections. OAuth apps, MCP servers, custom secrets — every external surface your agents reach, all in one place.\n\nLast — the agent itself. Templates wire up the harness for you — Claude Code, pi.dev, or roll your own. Give it a name. Toggle which connections and capabilities it's allowed to use — every agent's reach is scoped explicitly.\n\nUnderneath, Dam is spinning up a fresh pod, mounting the credentials you scoped, and bringing up the harness inside it. Network egress is locked to the connections you allowed — nothing else is reachable. When the badge flips green, the agent's ready. Click in.\n\nNow real work. Check Dam repository — who changed what this week, write me a markdown digest. Send, and wait for the agent's result.\n\nThe agent runs inside the pod. No shell on your machine, nothing to clean up afterwards. When something needs your call, an approval pops in your inbox — answer it, the agent continues. Your laptop can sleep; the pod keeps going. The session lives on the platform, reachable from your phone — or from anyone you share access with, who can answer those approvals when you're off.\n\nGenerated files land right here. Open one — running code, inline. Edit it, or add your own. The workspace is a volume that outlives the pod — your edits are there the next time the agent wakes up.\n\nAgents you can trust to run unattended. That's Dam.",
+  "words": [
+    {
+      "text": "Dam",
+      "start_ms": 400,
+      "end_ms": 725
+    },
+    {
+      "text": "runs",
+      "start_ms": 725,
+      "end_ms": 1012
+    },
+    {
+      "text": "your",
+      "start_ms": 1012,
+      "end_ms": 1200
+    },
+    {
+      "text": "AI",
+      "start_ms": 1200,
+      "end_ms": 1712
+    },
+    {
+      "text": "coding",
+      "start_ms": 1712,
+      "end_ms": 2162
+    },
+    {
+      "text": "agent",
+      "start_ms": 2162,
+      "end_ms": 2575
+    },
+    {
+      "text": "in",
+      "start_ms": 2575,
+      "end_ms": 2662
+    },
+    {
+      "text": "its",
+      "start_ms": 2662,
+      "end_ms": 2862
+    },
+    {
+      "text": "own",
+      "start_ms": 2862,
+      "end_ms": 3188
+    },
+    {
+      "text": "Kubernetes",
+      "start_ms": 3188,
+      "end_ms": 3862
+    },
+    {
+      "text": "pod",
+      "start_ms": 3862,
+      "end_ms": 4675
+    },
+    {
+      "text": "Credentials",
+      "start_ms": 4838,
+      "end_ms": 5450
+    },
+    {
+      "text": "safe",
+      "start_ms": 5450,
+      "end_ms": 6100
+    },
+    {
+      "text": "network",
+      "start_ms": 6238,
+      "end_ms": 6662
+    },
+    {
+      "text": "sandboxed",
+      "start_ms": 6662,
+      "end_ms": 7475
+    },
+    {
+      "text": "awake",
+      "start_ms": 7550,
+      "end_ms": 7912
+    },
+    {
+      "text": "when",
+      "start_ms": 7912,
+      "end_ms": 8050
+    },
+    {
+      "text": "you're",
+      "start_ms": 8050,
+      "end_ms": 8200
+    },
+    {
+      "text": "not",
+      "start_ms": 8200,
+      "end_ms": 8875
+    },
+    {
+      "text": "Sign",
+      "start_ms": 9575,
+      "end_ms": 9912
+    },
+    {
+      "text": "in",
+      "start_ms": 9912,
+      "end_ms": 10250
+    },
+    {
+      "text": "and",
+      "start_ms": 10250,
+      "end_ms": 10388
+    },
+    {
+      "text": "follow",
+      "start_ms": 10388,
+      "end_ms": 10800
+    },
+    {
+      "text": "three",
+      "start_ms": 10800,
+      "end_ms": 11088
+    },
+    {
+      "text": "steps",
+      "start_ms": 11088,
+      "end_ms": 11475
+    },
+    {
+      "text": "to",
+      "start_ms": 11475,
+      "end_ms": 11562
+    },
+    {
+      "text": "your",
+      "start_ms": 11562,
+      "end_ms": 11712
+    },
+    {
+      "text": "first",
+      "start_ms": 11712,
+      "end_ms": 12050
+    },
+    {
+      "text": "agent",
+      "start_ms": 12050,
+      "end_ms": 12800
+    },
+    {
+      "text": "First",
+      "start_ms": 13475,
+      "end_ms": 13825
+    },
+    {
+      "text": "a",
+      "start_ms": 13875,
+      "end_ms": 13987
+    },
+    {
+      "text": "model",
+      "start_ms": 13987,
+      "end_ms": 14375
+    },
+    {
+      "text": "provider",
+      "start_ms": 14375,
+      "end_ms": 15125
+    },
+    {
+      "text": "Anthropic",
+      "start_ms": 15275,
+      "end_ms": 15925
+    },
+    {
+      "text": "is",
+      "start_ms": 15925,
+      "end_ms": 16025
+    },
+    {
+      "text": "supported",
+      "start_ms": 16025,
+      "end_ms": 16525
+    },
+    {
+      "text": "today",
+      "start_ms": 16525,
+      "end_ms": 16925
+    },
+    {
+      "text": "OpenAI",
+      "start_ms": 17000,
+      "end_ms": 17700
+    },
+    {
+      "text": "and",
+      "start_ms": 17700,
+      "end_ms": 17837
+    },
+    {
+      "text": "Google",
+      "start_ms": 17837,
+      "end_ms": 18200
+    },
+    {
+      "text": "coming",
+      "start_ms": 18200,
+      "end_ms": 18525
+    },
+    {
+      "text": "soon",
+      "start_ms": 18525,
+      "end_ms": 19175
+    },
+    {
+      "text": "Connect",
+      "start_ms": 19313,
+      "end_ms": 19725
+    },
+    {
+      "text": "via",
+      "start_ms": 19725,
+      "end_ms": 20075
+    },
+    {
+      "text": "OAuth",
+      "start_ms": 20075,
+      "end_ms": 20650
+    },
+    {
+      "text": "or",
+      "start_ms": 20650,
+      "end_ms": 20813
+    },
+    {
+      "text": "API",
+      "start_ms": 20813,
+      "end_ms": 21487
+    },
+    {
+      "text": "key",
+      "start_ms": 21487,
+      "end_ms": 22125
+    },
+    {
+      "text": "Paste",
+      "start_ms": 22325,
+      "end_ms": 22800
+    },
+    {
+      "text": "test",
+      "start_ms": 22887,
+      "end_ms": 23275
+    },
+    {
+      "text": "save",
+      "start_ms": 23337,
+      "end_ms": 24100
+    },
+    {
+      "text": "Then",
+      "start_ms": 24775,
+      "end_ms": 24987
+    },
+    {
+      "text": "connections",
+      "start_ms": 25050,
+      "end_ms": 26075
+    },
+    {
+      "text": "OAuth",
+      "start_ms": 26250,
+      "end_ms": 26775
+    },
+    {
+      "text": "apps",
+      "start_ms": 26775,
+      "end_ms": 27250
+    },
+    {
+      "text": "MCP",
+      "start_ms": 27363,
+      "end_ms": 28150
+    },
+    {
+      "text": "servers",
+      "start_ms": 28150,
+      "end_ms": 28625
+    },
+    {
+      "text": "custom",
+      "start_ms": 28675,
+      "end_ms": 29113
+    },
+    {
+      "text": "secrets",
+      "start_ms": 29113,
+      "end_ms": 29963
+    },
+    {
+      "text": "every",
+      "start_ms": 30050,
+      "end_ms": 30375
+    },
+    {
+      "text": "external",
+      "start_ms": 30375,
+      "end_ms": 30950
+    },
+    {
+      "text": "surface",
+      "start_ms": 30950,
+      "end_ms": 31425
+    },
+    {
+      "text": "your",
+      "start_ms": 31425,
+      "end_ms": 31613
+    },
+    {
+      "text": "agents",
+      "start_ms": 31613,
+      "end_ms": 32063
+    },
+    {
+      "text": "reach",
+      "start_ms": 32063,
+      "end_ms": 32525
+    },
+    {
+      "text": "all",
+      "start_ms": 32663,
+      "end_ms": 32925
+    },
+    {
+      "text": "in",
+      "start_ms": 32925,
+      "end_ms": 33075
+    },
+    {
+      "text": "one",
+      "start_ms": 33075,
+      "end_ms": 33300
+    },
+    {
+      "text": "place",
+      "start_ms": 33300,
+      "end_ms": 34100
+    },
+    {
+      "text": "Last",
+      "start_ms": 34800,
+      "end_ms": 35237
+    },
+    {
+      "text": "the",
+      "start_ms": 35287,
+      "end_ms": 35437
+    },
+    {
+      "text": "agent",
+      "start_ms": 35437,
+      "end_ms": 35775
+    },
+    {
+      "text": "itself",
+      "start_ms": 35775,
+      "end_ms": 36750
+    },
+    {
+      "text": "Templates",
+      "start_ms": 36887,
+      "end_ms": 37413
+    },
+    {
+      "text": "wire",
+      "start_ms": 37413,
+      "end_ms": 37763
+    },
+    {
+      "text": "up",
+      "start_ms": 37763,
+      "end_ms": 37925
+    },
+    {
+      "text": "the",
+      "start_ms": 37925,
+      "end_ms": 38037
+    },
+    {
+      "text": "harness",
+      "start_ms": 38037,
+      "end_ms": 38450
+    },
+    {
+      "text": "for",
+      "start_ms": 38450,
+      "end_ms": 38613
+    },
+    {
+      "text": "you",
+      "start_ms": 38613,
+      "end_ms": 38925
+    },
+    {
+      "text": "Claude",
+      "start_ms": 39013,
+      "end_ms": 39463
+    },
+    {
+      "text": "Code",
+      "start_ms": 39463,
+      "end_ms": 39925
+    },
+    {
+      "text": "pi.dev",
+      "start_ms": 39987,
+      "end_ms": 40900
+    },
+    {
+      "text": "or",
+      "start_ms": 40975,
+      "end_ms": 41137
+    },
+    {
+      "text": "roll",
+      "start_ms": 41137,
+      "end_ms": 41450
+    },
+    {
+      "text": "your",
+      "start_ms": 41450,
+      "end_ms": 41625
+    },
+    {
+      "text": "own",
+      "start_ms": 41625,
+      "end_ms": 42300
+    },
+    {
+      "text": "Give",
+      "start_ms": 42437,
+      "end_ms": 42613
+    },
+    {
+      "text": "it",
+      "start_ms": 42613,
+      "end_ms": 42687
+    },
+    {
+      "text": "a",
+      "start_ms": 42687,
+      "end_ms": 42775
+    },
+    {
+      "text": "name",
+      "start_ms": 42775,
+      "end_ms": 43550
+    },
+    {
+      "text": "Toggle",
+      "start_ms": 43687,
+      "end_ms": 44125
+    },
+    {
+      "text": "which",
+      "start_ms": 44125,
+      "end_ms": 44337
+    },
+    {
+      "text": "connections",
+      "start_ms": 44337,
+      "end_ms": 45000
+    },
+    {
+      "text": "and",
+      "start_ms": 45000,
+      "end_ms": 45137
+    },
+    {
+      "text": "capabilities",
+      "start_ms": 45137,
+      "end_ms": 45950
+    },
+    {
+      "text": "it's",
+      "start_ms": 45950,
+      "end_ms": 46125
+    },
+    {
+      "text": "allowed",
+      "start_ms": 46125,
+      "end_ms": 46525
+    },
+    {
+      "text": "to",
+      "start_ms": 46525,
+      "end_ms": 46663
+    },
+    {
+      "text": "use",
+      "start_ms": 46663,
+      "end_ms": 47375
+    },
+    {
+      "text": "every",
+      "start_ms": 47463,
+      "end_ms": 47837
+    },
+    {
+      "text": "agent's",
+      "start_ms": 47837,
+      "end_ms": 48287
+    },
+    {
+      "text": "reach",
+      "start_ms": 48287,
+      "end_ms": 48650
+    },
+    {
+      "text": "is",
+      "start_ms": 48650,
+      "end_ms": 48787
+    },
+    {
+      "text": "scoped",
+      "start_ms": 48787,
+      "end_ms": 49225
+    },
+    {
+      "text": "explicitly",
+      "start_ms": 49225,
+      "end_ms": 50350
+    },
+    {
+      "text": "Underneath",
+      "start_ms": 50975,
+      "end_ms": 51650
+    },
+    {
+      "text": "Dam",
+      "start_ms": 51762,
+      "end_ms": 52125
+    },
+    {
+      "text": "is",
+      "start_ms": 52125,
+      "end_ms": 52262
+    },
+    {
+      "text": "spinning",
+      "start_ms": 52262,
+      "end_ms": 52662
+    },
+    {
+      "text": "up",
+      "start_ms": 52662,
+      "end_ms": 52788
+    },
+    {
+      "text": "a",
+      "start_ms": 52788,
+      "end_ms": 52888
+    },
+    {
+      "text": "fresh",
+      "start_ms": 52888,
+      "end_ms": 53212
+    },
+    {
+      "text": "pod",
+      "start_ms": 53212,
+      "end_ms": 53900
+    },
+    {
+      "text": "mounting",
+      "start_ms": 54012,
+      "end_ms": 54488
+    },
+    {
+      "text": "the",
+      "start_ms": 54488,
+      "end_ms": 54575
+    },
+    {
+      "text": "credentials",
+      "start_ms": 54575,
+      "end_ms": 55200
+    },
+    {
+      "text": "you",
+      "start_ms": 55200,
+      "end_ms": 55375
+    },
+    {
+      "text": "scoped",
+      "start_ms": 55375,
+      "end_ms": 55950
+    },
+    {
+      "text": "and",
+      "start_ms": 56025,
+      "end_ms": 56162
+    },
+    {
+      "text": "bringing",
+      "start_ms": 56162,
+      "end_ms": 56488
+    },
+    {
+      "text": "up",
+      "start_ms": 56488,
+      "end_ms": 56675
+    },
+    {
+      "text": "the",
+      "start_ms": 56675,
+      "end_ms": 56775
+    },
+    {
+      "text": "harness",
+      "start_ms": 56775,
+      "end_ms": 57200
+    },
+    {
+      "text": "inside",
+      "start_ms": 57200,
+      "end_ms": 57725
+    },
+    {
+      "text": "it",
+      "start_ms": 57725,
+      "end_ms": 58325
+    },
+    {
+      "text": "Network",
+      "start_ms": 58500,
+      "end_ms": 58938
+    },
+    {
+      "text": "egress",
+      "start_ms": 58938,
+      "end_ms": 59475
+    },
+    {
+      "text": "is",
+      "start_ms": 59475,
+      "end_ms": 59638
+    },
+    {
+      "text": "locked",
+      "start_ms": 59638,
+      "end_ms": 60000
+    },
+    {
+      "text": "to",
+      "start_ms": 60000,
+      "end_ms": 60088
+    },
+    {
+      "text": "the",
+      "start_ms": 60088,
+      "end_ms": 60175
+    },
+    {
+      "text": "connections",
+      "start_ms": 60175,
+      "end_ms": 60800
+    },
+    {
+      "text": "you",
+      "start_ms": 60800,
+      "end_ms": 60950
+    },
+    {
+      "text": "allowed",
+      "start_ms": 60950,
+      "end_ms": 61662
+    },
+    {
+      "text": "nothing",
+      "start_ms": 61750,
+      "end_ms": 62125
+    },
+    {
+      "text": "else",
+      "start_ms": 62125,
+      "end_ms": 62400
+    },
+    {
+      "text": "is",
+      "start_ms": 62400,
+      "end_ms": 62562
+    },
+    {
+      "text": "reachable",
+      "start_ms": 62562,
+      "end_ms": 63500
+    },
+    {
+      "text": "When",
+      "start_ms": 63625,
+      "end_ms": 63762
+    },
+    {
+      "text": "the",
+      "start_ms": 63762,
+      "end_ms": 63862
+    },
+    {
+      "text": "badge",
+      "start_ms": 63862,
+      "end_ms": 64312
+    },
+    {
+      "text": "flips",
+      "start_ms": 64312,
+      "end_ms": 64662
+    },
+    {
+      "text": "green",
+      "start_ms": 64662,
+      "end_ms": 65175
+    },
+    {
+      "text": "the",
+      "start_ms": 65225,
+      "end_ms": 65388
+    },
+    {
+      "text": "agent's",
+      "start_ms": 65388,
+      "end_ms": 65862
+    },
+    {
+      "text": "ready",
+      "start_ms": 65862,
+      "end_ms": 66400
+    },
+    {
+      "text": "Click",
+      "start_ms": 66538,
+      "end_ms": 66850
+    },
+    {
+      "text": "in",
+      "start_ms": 66850,
+      "end_ms": 67500
+    },
+    {
+      "text": "Now",
+      "start_ms": 68200,
+      "end_ms": 68437
+    },
+    {
+      "text": "real",
+      "start_ms": 68437,
+      "end_ms": 68775
+    },
+    {
+      "text": "work",
+      "start_ms": 68775,
+      "end_ms": 69425
+    },
+    {
+      "text": "Check",
+      "start_ms": 69575,
+      "end_ms": 69863
+    },
+    {
+      "text": "Dam",
+      "start_ms": 69863,
+      "end_ms": 70225
+    },
+    {
+      "text": "repository",
+      "start_ms": 70225,
+      "end_ms": 71087
+    },
+    {
+      "text": "who",
+      "start_ms": 71137,
+      "end_ms": 71300
+    },
+    {
+      "text": "changed",
+      "start_ms": 71300,
+      "end_ms": 71775
+    },
+    {
+      "text": "what",
+      "start_ms": 71775,
+      "end_ms": 71975
+    },
+    {
+      "text": "this",
+      "start_ms": 71975,
+      "end_ms": 72213
+    },
+    {
+      "text": "week",
+      "start_ms": 72213,
+      "end_ms": 72725
+    },
+    {
+      "text": "write",
+      "start_ms": 72863,
+      "end_ms": 73087
+    },
+    {
+      "text": "me",
+      "start_ms": 73087,
+      "end_ms": 73250
+    },
+    {
+      "text": "a",
+      "start_ms": 73250,
+      "end_ms": 73363
+    },
+    {
+      "text": "markdown",
+      "start_ms": 73363,
+      "end_ms": 73925
+    },
+    {
+      "text": "digest",
+      "start_ms": 73925,
+      "end_ms": 74825
+    },
+    {
+      "text": "Send",
+      "start_ms": 75013,
+      "end_ms": 75425
+    },
+    {
+      "text": "and",
+      "start_ms": 75475,
+      "end_ms": 75613
+    },
+    {
+      "text": "wait",
+      "start_ms": 75613,
+      "end_ms": 75900
+    },
+    {
+      "text": "for",
+      "start_ms": 75900,
+      "end_ms": 76013
+    },
+    {
+      "text": "the",
+      "start_ms": 76013,
+      "end_ms": 76163
+    },
+    {
+      "text": "agent's",
+      "start_ms": 76163,
+      "end_ms": 76600
+    },
+    {
+      "text": "result",
+      "start_ms": 76600,
+      "end_ms": 77400
+    },
+    {
+      "text": "The",
+      "start_ms": 78050,
+      "end_ms": 78187
+    },
+    {
+      "text": "agent",
+      "start_ms": 78187,
+      "end_ms": 78587
+    },
+    {
+      "text": "runs",
+      "start_ms": 78587,
+      "end_ms": 78975
+    },
+    {
+      "text": "inside",
+      "start_ms": 78975,
+      "end_ms": 79387
+    },
+    {
+      "text": "the",
+      "start_ms": 79387,
+      "end_ms": 79487
+    },
+    {
+      "text": "pod",
+      "start_ms": 79487,
+      "end_ms": 80275
+    },
+    {
+      "text": "No",
+      "start_ms": 80413,
+      "end_ms": 80675
+    },
+    {
+      "text": "shell",
+      "start_ms": 80675,
+      "end_ms": 80987
+    },
+    {
+      "text": "on",
+      "start_ms": 80987,
+      "end_ms": 81113
+    },
+    {
+      "text": "your",
+      "start_ms": 81113,
+      "end_ms": 81225
+    },
+    {
+      "text": "machine",
+      "start_ms": 81225,
+      "end_ms": 81750
+    },
+    {
+      "text": "nothing",
+      "start_ms": 81837,
+      "end_ms": 82225
+    },
+    {
+      "text": "to",
+      "start_ms": 82225,
+      "end_ms": 82350
+    },
+    {
+      "text": "clean",
+      "start_ms": 82350,
+      "end_ms": 82613
+    },
+    {
+      "text": "up",
+      "start_ms": 82613,
+      "end_ms": 82813
+    },
+    {
+      "text": "afterwards",
+      "start_ms": 82813,
+      "end_ms": 83875
+    },
+    {
+      "text": "When",
+      "start_ms": 83975,
+      "end_ms": 84150
+    },
+    {
+      "text": "something",
+      "start_ms": 84150,
+      "end_ms": 84550
+    },
+    {
+      "text": "needs",
+      "start_ms": 84550,
+      "end_ms": 84787
+    },
+    {
+      "text": "your",
+      "start_ms": 84787,
+      "end_ms": 84937
+    },
+    {
+      "text": "call",
+      "start_ms": 84937,
+      "end_ms": 85300
+    },
+    {
+      "text": "an",
+      "start_ms": 85350,
+      "end_ms": 85450
+    },
+    {
+      "text": "approval",
+      "start_ms": 85450,
+      "end_ms": 85963
+    },
+    {
+      "text": "pops",
+      "start_ms": 85963,
+      "end_ms": 86337
+    },
+    {
+      "text": "in",
+      "start_ms": 86337,
+      "end_ms": 86413
+    },
+    {
+      "text": "your",
+      "start_ms": 86413,
+      "end_ms": 86563
+    },
+    {
+      "text": "inbox",
+      "start_ms": 86563,
+      "end_ms": 87200
+    },
+    {
+      "text": "answer",
+      "start_ms": 87287,
+      "end_ms": 87725
+    },
+    {
+      "text": "it",
+      "start_ms": 87725,
+      "end_ms": 87925
+    },
+    {
+      "text": "the",
+      "start_ms": 88000,
+      "end_ms": 88163
+    },
+    {
+      "text": "agent",
+      "start_ms": 88163,
+      "end_ms": 88500
+    },
+    {
+      "text": "continues",
+      "start_ms": 88500,
+      "end_ms": 89600
+    },
+    {
+      "text": "Your",
+      "start_ms": 89737,
+      "end_ms": 89925
+    },
+    {
+      "text": "laptop",
+      "start_ms": 89925,
+      "end_ms": 90475
+    },
+    {
+      "text": "can",
+      "start_ms": 90475,
+      "end_ms": 90675
+    },
+    {
+      "text": "sleep",
+      "start_ms": 90675,
+      "end_ms": 91275
+    },
+    {
+      "text": "the",
+      "start_ms": 91375,
+      "end_ms": 91487
+    },
+    {
+      "text": "pod",
+      "start_ms": 91487,
+      "end_ms": 91875
+    },
+    {
+      "text": "keeps",
+      "start_ms": 91875,
+      "end_ms": 92175
+    },
+    {
+      "text": "going",
+      "start_ms": 92175,
+      "end_ms": 93075
+    },
+    {
+      "text": "The",
+      "start_ms": 93213,
+      "end_ms": 93375
+    },
+    {
+      "text": "session",
+      "start_ms": 93375,
+      "end_ms": 93813
+    },
+    {
+      "text": "lives",
+      "start_ms": 93813,
+      "end_ms": 94137
+    },
+    {
+      "text": "on",
+      "start_ms": 94137,
+      "end_ms": 94263
+    },
+    {
+      "text": "the",
+      "start_ms": 94263,
+      "end_ms": 94350
+    },
+    {
+      "text": "platform",
+      "start_ms": 94350,
+      "end_ms": 95050
+    },
+    {
+      "text": "reachable",
+      "start_ms": 95137,
+      "end_ms": 95600
+    },
+    {
+      "text": "from",
+      "start_ms": 95600,
+      "end_ms": 95775
+    },
+    {
+      "text": "your",
+      "start_ms": 95775,
+      "end_ms": 95950
+    },
+    {
+      "text": "phone",
+      "start_ms": 95950,
+      "end_ms": 96475
+    },
+    {
+      "text": "or",
+      "start_ms": 96550,
+      "end_ms": 96700
+    },
+    {
+      "text": "from",
+      "start_ms": 96700,
+      "end_ms": 96913
+    },
+    {
+      "text": "anyone",
+      "start_ms": 96913,
+      "end_ms": 97450
+    },
+    {
+      "text": "you",
+      "start_ms": 97450,
+      "end_ms": 97625
+    },
+    {
+      "text": "share",
+      "start_ms": 97625,
+      "end_ms": 97950
+    },
+    {
+      "text": "access",
+      "start_ms": 97950,
+      "end_ms": 98475
+    },
+    {
+      "text": "with",
+      "start_ms": 98475,
+      "end_ms": 98875
+    },
+    {
+      "text": "who",
+      "start_ms": 98975,
+      "end_ms": 99100
+    },
+    {
+      "text": "can",
+      "start_ms": 99100,
+      "end_ms": 99287
+    },
+    {
+      "text": "answer",
+      "start_ms": 99287,
+      "end_ms": 99700
+    },
+    {
+      "text": "those",
+      "start_ms": 99700,
+      "end_ms": 99950
+    },
+    {
+      "text": "approvals",
+      "start_ms": 99950,
+      "end_ms": 100575
+    },
+    {
+      "text": "when",
+      "start_ms": 100575,
+      "end_ms": 100725
+    },
+    {
+      "text": "you're",
+      "start_ms": 100725,
+      "end_ms": 100900
+    },
+    {
+      "text": "off",
+      "start_ms": 100900,
+      "end_ms": 101625
+    },
+    {
+      "text": "Generated",
+      "start_ms": 102325,
+      "end_ms": 102912
+    },
+    {
+      "text": "files",
+      "start_ms": 102912,
+      "end_ms": 103388
+    },
+    {
+      "text": "land",
+      "start_ms": 103388,
+      "end_ms": 103750
+    },
+    {
+      "text": "right",
+      "start_ms": 103750,
+      "end_ms": 104025
+    },
+    {
+      "text": "here",
+      "start_ms": 104025,
+      "end_ms": 104650
+    },
+    {
+      "text": "Open",
+      "start_ms": 104788,
+      "end_ms": 105138
+    },
+    {
+      "text": "one",
+      "start_ms": 105138,
+      "end_ms": 105688
+    },
+    {
+      "text": "running",
+      "start_ms": 105775,
+      "end_ms": 106138
+    },
+    {
+      "text": "code",
+      "start_ms": 106138,
+      "end_ms": 106625
+    },
+    {
+      "text": "inline",
+      "start_ms": 106700,
+      "end_ms": 107425
+    },
+    {
+      "text": "Edit",
+      "start_ms": 107562,
+      "end_ms": 107850
+    },
+    {
+      "text": "it",
+      "start_ms": 107850,
+      "end_ms": 108025
+    },
+    {
+      "text": "or",
+      "start_ms": 108100,
+      "end_ms": 108275
+    },
+    {
+      "text": "add",
+      "start_ms": 108275,
+      "end_ms": 108550
+    },
+    {
+      "text": "your",
+      "start_ms": 108550,
+      "end_ms": 108725
+    },
+    {
+      "text": "own",
+      "start_ms": 108725,
+      "end_ms": 109450
+    },
+    {
+      "text": "The",
+      "start_ms": 109588,
+      "end_ms": 109738
+    },
+    {
+      "text": "workspace",
+      "start_ms": 109738,
+      "end_ms": 110400
+    },
+    {
+      "text": "is",
+      "start_ms": 110400,
+      "end_ms": 110525
+    },
+    {
+      "text": "a",
+      "start_ms": 110525,
+      "end_ms": 110638
+    },
+    {
+      "text": "volume",
+      "start_ms": 110638,
+      "end_ms": 111200
+    },
+    {
+      "text": "that",
+      "start_ms": 111200,
+      "end_ms": 111388
+    },
+    {
+      "text": "outlives",
+      "start_ms": 111388,
+      "end_ms": 112000
+    },
+    {
+      "text": "the",
+      "start_ms": 112000,
+      "end_ms": 112112
+    },
+    {
+      "text": "pod",
+      "start_ms": 112112,
+      "end_ms": 112688
+    },
+    {
+      "text": "your",
+      "start_ms": 112750,
+      "end_ms": 112962
+    },
+    {
+      "text": "edits",
+      "start_ms": 112962,
+      "end_ms": 113350
+    },
+    {
+      "text": "are",
+      "start_ms": 113350,
+      "end_ms": 113450
+    },
+    {
+      "text": "there",
+      "start_ms": 113450,
+      "end_ms": 113650
+    },
+    {
+      "text": "the",
+      "start_ms": 113650,
+      "end_ms": 113750
+    },
+    {
+      "text": "next",
+      "start_ms": 113750,
+      "end_ms": 114025
+    },
+    {
+      "text": "time",
+      "start_ms": 114025,
+      "end_ms": 114338
+    },
+    {
+      "text": "the",
+      "start_ms": 114338,
+      "end_ms": 114488
+    },
+    {
+      "text": "agent",
+      "start_ms": 114488,
+      "end_ms": 114925
+    },
+    {
+      "text": "wakes",
+      "start_ms": 114925,
+      "end_ms": 115250
+    },
+    {
+      "text": "up",
+      "start_ms": 115250,
+      "end_ms": 115825
+    },
+    {
+      "text": "Agents",
+      "start_ms": 116475,
+      "end_ms": 116850
+    },
+    {
+      "text": "you",
+      "start_ms": 116850,
+      "end_ms": 116975
+    },
+    {
+      "text": "can",
+      "start_ms": 116975,
+      "end_ms": 117175
+    },
+    {
+      "text": "trust",
+      "start_ms": 117175,
+      "end_ms": 117475
+    },
+    {
+      "text": "to",
+      "start_ms": 117475,
+      "end_ms": 117612
+    },
+    {
+      "text": "run",
+      "start_ms": 117612,
+      "end_ms": 117925
+    },
+    {
+      "text": "unattended",
+      "start_ms": 117925,
+      "end_ms": 118875
+    },
+    {
+      "text": "That's",
+      "start_ms": 119012,
+      "end_ms": 119362
+    },
+    {
+      "text": "Dam",
+      "start_ms": 119362,
+      "end_ms": 120150
+    }
+  ],
+  "cues": []
+}
